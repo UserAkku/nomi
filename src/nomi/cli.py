@@ -143,8 +143,8 @@ def evaluate(
     dataset: Path = typer.Argument(
         ..., exists=True, dir_okay=False, help="JSONL dataset from `nomi dataset build`."
     ),
-    out: Path = typer.Option(
-        Path("eval-runs/latest"), "--out", help="Output directory (resumable)."
+    out: Path | None = typer.Option(
+        None, "--out", help="Output directory (resumable). Default: eval-runs/<dataset name>."
     ),
     limit: int | None = typer.Option(None, "--limit", help="Only the first N items."),
     no_llm: bool = typer.Option(False, "--no-llm", help="Deterministic checks only."),
@@ -162,7 +162,7 @@ def evaluate(
     """Score Nomi against closed issues whose labels are the reference answers."""
     from nomi.eval.dataset import EvalItem, load_dataset
     from nomi.eval.metrics import render_metrics_markdown
-    from nomi.eval.runner import run_eval
+    from nomi.eval.runner import ManifestMismatchError, dataset_fingerprint, run_eval
     from nomi.pipeline import analyze as run_analysis
     from nomi.pipeline import build_llm, build_sandbox, open_workspace_for
 
@@ -186,6 +186,10 @@ def evaluate(
             time.sleep(cooldown)
         submission = item.to_submission()
         workspace, note = open_workspace_for(submission, settings)
+        if workspace is None:
+            # Scoring a text-only analysis as Nomi's answer would skew the metrics;
+            # an error row is retried when the run is resumed.
+            raise RuntimeError(note or "Repository checkout failed.")
         notes = [n for n in (note, llm_note) if n]
         return run_analysis(submission, workspace, llm=llm, sandbox=sandbox, notes=notes)
 
@@ -197,9 +201,23 @@ def evaluate(
             f"[{done}/{total}] {mark} {row['id']}: gold={row['gold']} pred={row.get('pred')} ({row.get('seconds', 0):.1f}s)"
         )
 
-    metrics = run_eval(
-        items, analyze_item, out_dir=out, resume=not fresh, limit=limit, on_progress=progress
-    )
+    config = {
+        **dataset_fingerprint(dataset),
+        "model": llm.name if llm is not None else None,
+        "sandbox": sandbox is not None,
+    }
+    try:
+        metrics = run_eval(
+            items,
+            analyze_item,
+            out_dir=out if out is not None else Path("eval-runs") / dataset.stem,
+            resume=not fresh,
+            limit=limit,
+            on_progress=progress,
+            config=config,
+        )
+    except ManifestMismatchError as exc:
+        _fail(str(exc))
     sys.stdout.write(render_metrics_markdown(metrics) + "\n")
 
 

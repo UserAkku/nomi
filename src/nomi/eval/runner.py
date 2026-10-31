@@ -2,10 +2,14 @@
 
 A run against a local model can take hours and will be interrupted, so each
 prediction is appended to ``predictions.jsonl`` the moment it exists and a
-rerun resumes where the last one stopped. One failing issue must not sink the
-run either: its exception is recorded as an abstention together with the error.
-Metrics are always recomputed from the predictions file rather than from
-memory, so the numbers on disk and the numbers returned can never disagree.
+rerun resumes where the last one stopped. ``manifest.json`` records what the
+predictions were made with (dataset, model, sandbox, Nomi version) so a resume
+never mixes predictions from different setups. One failing issue must not sink
+the run either: its exception is recorded as an abstention together with the
+error, and a resumed run tries it again. Metrics are always recomputed from the
+predictions file rather than from memory, so the numbers on disk and the
+numbers returned can never disagree; they cover exactly the selected items,
+scored against the gold labels of the current dataset.
 """
 
 from __future__ import annotations
@@ -14,16 +18,18 @@ import json
 import math
 import re
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from hashlib import sha256
 from pathlib import Path
 from typing import IO, Any
 
+from nomi import __version__
 from nomi.eval.dataset import EvalItem
 from nomi.eval.metrics import compute_metrics, render_metrics_markdown
 from nomi.models import Report, Verdict
 
 PREDICTIONS_FILE = "predictions.jsonl"
+MANIFEST_FILE = "manifest.json"
 METRICS_JSON = "metrics.json"
 METRICS_MD = "metrics.md"
 REPORTS_DIR = "reports"
@@ -34,6 +40,62 @@ ProgressFn = Callable[[int, int, dict[str, Any]], None]
 _MAX_ERROR_CHARS = 500
 _MAX_NAME_CHARS = 120
 _UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+class ManifestMismatchError(ValueError):
+    """``out_dir`` holds predictions made with a different dataset or configuration."""
+
+
+# --------------------------------------------------------------------------
+# manifest.json
+# --------------------------------------------------------------------------
+
+
+def dataset_fingerprint(path: Path | str) -> dict[str, str]:
+    """Where a dataset lives and a hash of its exact bytes, for the run manifest."""
+    path = Path(path)
+    return {
+        "dataset": str(path.resolve()),
+        "dataset_sha256": sha256(path.read_bytes()).hexdigest(),
+    }
+
+
+def _manifest(config: Mapping[str, Any] | None) -> dict[str, Any]:
+    manifest: dict[str, Any] = {
+        "dataset": None,
+        "dataset_sha256": None,
+        "model": None,
+        "sandbox": None,
+        **(config or {}),
+        "nomi_version": __version__,
+    }
+    return json.loads(json.dumps(manifest, default=str))  # exactly what a reload gives back
+
+
+def _check_manifest(path: Path, manifest: dict[str, Any]) -> None:
+    """Refuse to resume predictions that were made with a different setup.
+
+    A directory written before manifests existed has none; it is adopted as is.
+    """
+    if not path.is_file():
+        return
+    try:
+        recorded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        recorded = None
+    if recorded == manifest:
+        return
+    if isinstance(recorded, dict):
+        changed = sorted(
+            k for k in recorded.keys() | manifest.keys() if recorded.get(k) != manifest.get(k)
+        )
+        detail = "; ".join(f"{k}: {recorded.get(k)!r} -> {manifest.get(k)!r}" for k in changed)
+    else:
+        detail = f"{path.name} is unreadable"
+    raise ManifestMismatchError(
+        f"{path.parent} holds predictions from a different evaluation ({detail}). "
+        "Pass --fresh to start over there, or choose another --out."
+    )
 
 
 # --------------------------------------------------------------------------
@@ -189,9 +251,11 @@ def _select(items: Iterable[EvalItem], limit: int | None) -> list[EvalItem]:
     return selected if limit is None else selected[: max(limit, 0)]
 
 
-def _score(predictions: Path) -> dict[str, Any]:
-    rows = load_predictions(predictions)
-    metrics = compute_metrics([row["gold"] for row in rows], [row["pred"] for row in rows])
+def _score(predictions: Path, selected: list[EvalItem]) -> dict[str, Any]:
+    latest = {row["id"]: row for row in load_predictions(predictions)}
+    scored = [(item, latest[item.id]) for item in selected if item.id in latest]
+    rows = [row for _, row in scored]
+    metrics = compute_metrics([item.gold for item, _ in scored], [row["pred"] for row in rows])
     durations = [
         float(row["seconds"])
         for row in rows
@@ -212,25 +276,37 @@ def run_eval(
     resume: bool = True,
     limit: int | None = None,
     on_progress: ProgressFn | None = None,
+    config: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Analyse each item, record predictions and reports in ``out_dir``, return metrics.
 
     Only the first ``limit`` items (after dropping duplicate ids) are considered.
-    With ``resume`` the ids already in ``predictions.jsonl`` are skipped;
-    without it the file is started afresh. ``on_progress(done, total, row)`` is
-    called after each analysed item, where ``done`` also counts the items a
-    resumed run skipped. The returned metrics cover every row in the file and
-    are also written to ``metrics.json`` and ``metrics.md``.
+    With ``resume`` the ids already predicted in ``predictions.jsonl`` are
+    skipped (rows that ended in an error are retried); without it the file is
+    started afresh. ``config`` (dataset fingerprint, model, sandbox) is stored
+    with the Nomi version in ``manifest.json``; resuming predictions recorded
+    under a different manifest raises :class:`ManifestMismatchError`.
+    ``on_progress(done, total, row)`` is called after each analysed item, where
+    ``done`` also counts the items a resumed run skipped. The returned metrics
+    cover the selected items only, scored against their current gold labels,
+    and are also written to ``metrics.json`` and ``metrics.md``.
     """
     out_dir = Path(out_dir)
     reports_dir = out_dir / REPORTS_DIR
-    reports_dir.mkdir(parents=True, exist_ok=True)
     predictions = out_dir / PREDICTIONS_FILE
+    manifest = _manifest(config)
+    previous = load_predictions(predictions) if resume else []
+    if previous:
+        _check_manifest(out_dir / MANIFEST_FILE, manifest)
+    reports_dir.mkdir(parents=True, exist_ok=True)
     if not resume:
         predictions.write_text("", encoding="utf-8")
+    (out_dir / MANIFEST_FILE).write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
     selected = _select(items, limit)
-    done_ids = {row["id"] for row in load_predictions(predictions)}
+    done_ids = {row["id"] for row in previous if not row.get("error")}
     todo = [item for item in selected if item.id not in done_ids]
     total = len(selected)
     with _open_for_append(predictions) as sink:
@@ -241,7 +317,7 @@ def run_eval(
             if on_progress is not None:
                 on_progress(done, total, row)
 
-    metrics = _score(predictions)
+    metrics = _score(predictions, selected)
     (out_dir / METRICS_JSON).write_text(
         json.dumps(metrics, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
