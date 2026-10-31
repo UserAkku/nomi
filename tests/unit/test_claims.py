@@ -625,3 +625,37 @@ def test_sentences_read_at_most_max_chars() -> None:
     assert time.perf_counter() - started < 1.0
     assert units and max(u.end for u in units) <= MAX_CHARS
     assert all(text[u.start : u.end] == u.text for u in units)
+
+
+def test_code_fence_quotes_are_not_claims() -> None:
+    body = "It crashes.\n\n```c\nmh_easy_setopt_url_safe(h, url);\n```\n"
+    sub = Submission(kind=Kind.ISSUE, repo="o/r", title="Crash in setopt", body=body)
+    llm = FakeLLM(
+        responses=[
+            {
+                "claims": [
+                    {
+                        "text": "code",
+                        "type": "reproduction",
+                        "quote": "```c\nmh_easy_setopt_url_safe(h, url);",
+                        "entities": [],
+                        "checkable": True,
+                    },
+                    {
+                        "text": "It crashes.",
+                        "type": "behavior",
+                        "quote": "It crashes.",
+                        "entities": [],
+                        "checkable": True,
+                    },
+                ]
+            }
+        ]
+    )
+    claims = extract_claims(sub, Artifacts(), llm)
+    assert all("```" not in c.quote for c in claims)
+
+
+def test_quote_extends_to_a_nearby_closing_backtick() -> None:
+    source = "It is called from `mh_easy_perform()` on every request."
+    assert verify_quote("called from `mh_easy_perform", source) == "called from `mh_easy_perform()`"
