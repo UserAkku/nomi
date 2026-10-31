@@ -330,7 +330,7 @@ def _find_file_refs(
 
 # ------------------------------------------------------------------ symbols
 
-_SYMBOL_TOKEN = re.compile(r"(?<![\w.$@/\\#-])[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
+_SYMBOL_TOKEN = re.compile(r"(?<![\w.$@/\\#%-])[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
 _IDENTIFIER = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*(?:\(\))?")
 _PLURAL_PAREN = re.compile(r"\((?:s|es)\)")
 _DEFINITION = re.compile(
@@ -358,6 +358,19 @@ _BRAND_WORDS = _words("""github gitlab bitbucket javascript typescript coffeescr
     latex mcdonald powerpoint onedrive sharepoint dropbox openssl libreoffice fastapi numpy scipy
     pytorch tensorflow""")
 _TLDS = _words("com org net io dev ai co edu gov uk de fr app info me us ca jp cn ru")
+# External tools a report mentions (sanitizers, debuggers, profilers), never repository symbols.
+_EXTERNAL_TOOLS = _words(
+    "ASan UBSan TSan MSan LSan AddressSanitizer UndefinedBehaviorSanitizer ThreadSanitizer "
+    "MemorySanitizer LeakSanitizer valgrind gdb lldb strace perf"
+)
+# Runtime-file extensions: `worker.pid` in `--pidfile=worker.pid` is a file, not an attribute.
+# Only applied in argument context, because `proc.pid` or `app.conf` in prose are attributes.
+_DATA_EXTENSIONS = _words("pid log lock sock conf pem csv tmp bak")
+_PATH_CONTEXT = frozenset("/\\%='\"")
+# The value of celery-style `-A`/`--app` options is the reporter's own application.
+_APP_OPTION = re.compile(r"(?:^|[\s`])(?:-A|--app)(?:=|[ \t]+)[\"']?$")
+_APP_WINDOW = 24
+_MAX_CHUNK = 200
 # Same answer as [A-Z]{2,}[a-z]{2,} for a yes/no search, without backtracking.
 _CAMEL = re.compile(r"[a-z0-9][A-Z]|[A-Z]{2}[a-z]{2}")
 
@@ -374,6 +387,8 @@ def _code_like(token: str, called: bool) -> bool:
     low = token.lower()
     if len(token) < 2 or low in _COMMON_WORDS or low in _KEYWORDS or low in _BRAND_WORDS:
         return False
+    if token in _EXTERNAL_TOOLS:
+        return False
     if "." in token:
         return _dotted_ok(token) or called
     if called:
@@ -385,6 +400,32 @@ def _code_like(token: str, called: bool) -> bool:
     return bool(_CAMEL.search(token))
 
 
+def _app_value(text: str, start: int) -> bool:
+    """True when the token at `start` is the value of a `-A`/`--app` option."""
+    return bool(_APP_OPTION.search(text, max(0, start - _APP_WINDOW), start))
+
+
+def _chunk_around(text: str, start: int, end: int) -> str:
+    """The whitespace-delimited run of text containing [start, end)."""
+    lo = start
+    while lo > 0 and not text[lo - 1].isspace() and start - lo < _MAX_CHUNK:
+        lo -= 1
+    hi = end
+    while hi < len(text) and not text[hi].isspace() and hi - end < _MAX_CHUNK:
+        hi += 1
+    return text[lo:hi]
+
+
+def _path_part(text: str, m: re.Match[str]) -> bool:
+    """A token that is a segment of a path or file argument (`tmp/`, `"worker.pid"`)."""
+    if text.startswith(("/", "\\"), m.end()):
+        return True
+    tail = m[0].rsplit(".", 1)[-1].lower() if "." in m[0] else ""
+    if tail not in _DATA_EXTENSIONS:
+        return False
+    return any(ch in _PATH_CONTEXT for ch in _chunk_around(text, m.start(), m.end()))
+
+
 def _prose_symbols(prose: str) -> list[tuple[int, str]]:
     found: list[tuple[int, str]] = []
     seen: set[str] = set()
@@ -392,7 +433,9 @@ def _prose_symbols(prose: str) -> list[tuple[int, str]]:
         token = m[0]
         nxt = m.end()
         called = prose.startswith("(", nxt) and not _PLURAL_PAREN.match(prose, nxt)
-        if token not in seen and _code_like(token, called):
+        if token in seen or _path_part(prose, m) or _app_value(prose, m.start()):
+            continue
+        if _code_like(token, called):
             seen.add(token)
             found.append((m.start(), token))
             if len(found) >= MAX_SYMBOLS:
@@ -409,7 +452,7 @@ def _inline_symbols(spans: list[_Inline]) -> list[tuple[int, str]]:
             continue
         name = content.removesuffix("()")
         low = name.lower()
-        if len(name) < 2 or low in _COMMON_WORDS or low in _KEYWORDS:
+        if len(name) < 2 or low in _COMMON_WORDS or low in _KEYWORDS or name in _EXTERNAL_TOOLS:
             continue
         if "." in name and name.rsplit(".", 1)[-1].lower() in FILE_EXTENSIONS:
             continue
@@ -431,7 +474,9 @@ def _block_symbols(fenced: list[_Fenced]) -> list[tuple[int, str]]:
                 name in seen
                 or len(name.strip("$")) < 2
                 or low in _KEYWORDS
+                or name in _EXTERNAL_TOOLS
                 or (noise and not defined)
+                or _app_value(content, pos)
             ):
                 continue
             seen.add(name)
