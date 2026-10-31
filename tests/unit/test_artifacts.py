@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from nomi.extract.artifacts import MAX_CHARS, extract_artifacts
+from nomi.extract.artifacts import MAX_CHARS, MAX_ITEMS, extract_artifacts
 from nomi.models import Artifacts, FileRef
 
 FENCE = "```"
@@ -513,3 +513,105 @@ def test_cve_ids() -> None:
 def test_adversarial_text_does_not_crash() -> None:
     text = "```\n``` ``` `\n\\\\\\ ((((( #### ----- ::: \x00 \ufeff " + "](" * 500 + "\n~~~"
     assert isinstance(extract_artifacts(text), Artifacts)
+
+
+# ---------------------------------------- regex backtracking (review group D)
+
+BLANKS = " " * 50_000
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("```x" + " " * 80_000 + "y", id="D2-fence-info"),
+        pytest.param('File "a.py", line 1, in ' + BLANKS + "x", id="D3-python-frame"),
+        pytest.param(
+            "thread 'main' panicked at src/main.rs:1:1:\nboom\nstack backtrace:\n"
+            f"   0: f{BLANKS}x\n",
+            id="D3-rust-backtrace-frame",
+        ),
+        pytest.param(
+            f"panic: a{BLANKS}x\n\ngoroutine 1 [running]:\nmain.f()\n\tmain.go:1\n",
+            id="D3-go-panic",
+        ),
+        pytest.param(f"java.lang.Foo: a{BLANKS}x\n\tat a.B.c(B.java:1)\n", id="D3-java-header"),
+        pytest.param(f"TypeError: a{BLANKS}x\n    at f (a.js:1:1)\n", id="D3-js-header"),
+        pytest.param(f"    at a{BLANKS}x", id="D3-js-frame"),
+        pytest.param(
+            f"Program received signal SIGSEGV, a{BLANKS}x\n#0  0x1 in f () at a.c:1\n",
+            id="D3-c-header",
+        ),
+        pytest.param(f"#0 0x1 in f{BLANKS}x", id="D3-c-asan-frame"),
+        pytest.param("thread 'x' panicked at '" * 8333, id="D4-rust-panic"),
+        pytest.param(" #1" * 66_666, id="D5-issue-refs"),
+        pytest.param(
+            f"goroutine 1 [running]:\nmain.f{BLANKS}in goroutine x\n\tmain.go:1\n",
+            id="go-in-goroutine-suffix",
+        ),
+        pytest.param("A" * 200_000, id="camel-case-check"),
+        pytest.param("http://a(" + ")" * 200_000, id="url-closing-brackets"),
+        pytest.param("http://a" + "." * 200_000, id="url-trailing-dots"),
+    ],
+)
+def test_adversarial_input_is_extracted_in_linear_time(text: str) -> None:
+    start = time.perf_counter()
+    extract_artifacts(text)
+    assert time.perf_counter() - start < 1.0
+
+
+def test_fence_info_is_stripped_and_capped() -> None:
+    text = (
+        f"{FENCE}   python   \nx = 1\n{FENCE}\n{FENCE}{' ' * 300}rust\nfn main() {{}}\n{FENCE}\n"
+        f"{FENCE}{'x' * 300}\ny\n{FENCE}\n"
+    )
+    languages = [b.language for b in extract_artifacts(text).code_blocks]
+    assert languages == ["python", "rust", "x" * 200]
+
+
+def test_trace_lines_with_trailing_blanks_still_parse() -> None:
+    text = (
+        "Traceback (most recent call last):   \n"
+        '  File "src/widget/net.py", line 13, in fetch   \t\n'
+        "    parts = parse_url(url)\n"
+        "ValueError: empty url   \n\n"
+        "TypeError: bad input   \n"
+        "    at Object.fetch  (src/net.js:10:5)   \n\n"
+        "Program received signal SIGSEGV, Segmentation fault.  \n"
+        "#0  0x1 in parse (s=0x0) at src/parse.c:12  \n"
+    )
+    py, js, c = extract_artifacts(text).stack_traces
+    assert (py.frames[0].function, py.error_message) == ("fetch", "empty url")
+    assert (js.frames[0].function, js.frames[0].path, js.error_message) == (
+        "Object.fetch",
+        "src/net.js",
+        "bad input",
+    )
+    assert (c.error_type, c.error_message) == ("SIGSEGV", "Segmentation fault")
+
+
+def test_go_created_by_frame_drops_goroutine_suffix() -> None:
+    text = (
+        "goroutine 7 [running]:\n"
+        "main.worker(0xc000010000)\n\t/app/main.go:12 +0x1d\n"
+        "created by main.main in goroutine 1\n\t/app/main.go:30 +0x5a\n"
+    )
+    (trace,) = extract_artifacts(text).stack_traces
+    assert [f.function for f in trace.frames] == ["main.worker", "main.main"]
+
+
+def test_issue_refs_skip_headings_dedupe_and_cap() -> None:
+    text = "# Heading #5\nSee #12 and #12, then #7\n## #9\n#8\n"
+    assert extract_artifacts(text).issue_refs == [12, 7, 8]
+    many = " ".join(f"#{n}" for n in range(1, MAX_ITEMS + 50))
+    assert extract_artifacts(many).issue_refs == list(range(1, MAX_ITEMS + 1))
+
+
+def test_camel_case_check_is_unchanged() -> None:
+    symbols = extract_artifacts("HTTPServer and XMLHttpRequest, not ABC or NASA.").symbols
+    assert symbols == ["HTTPServer", "XMLHttpRequest"]
+
+
+def test_url_trimming_keeps_balanced_brackets() -> None:
+    text = "see (http://a.com/x_(y))). and [docs](https://b.io/c). or (https://e.com/a]])"
+    urls = extract_artifacts(text).urls
+    assert urls == ["http://a.com/x_(y)", "https://b.io/c", "https://e.com/a"]

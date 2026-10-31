@@ -33,7 +33,9 @@ WEIGHTS: dict[Section, float] = {
 # ------------------------------------------------------------ template noise
 
 _HTML_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.S)
-_EXAMPLE_BRACKET = re.compile(r"\[\s*(?:e\.g\.?|eg|ex|example)\b[^\]\n]*\]", re.I)
+_EXAMPLE_BRACKET = re.compile(r"\[\s*(?:e\.g\.?|eg|ex|example)\b[^\]\n]{0,200}\]", re.I)
+# Whitespace runs are matched by exactly one quantifier (never `\s*X?\s*`): an
+# ambiguous split of the same run backtracks polynomially on long blank runs.
 _PLACEHOLDER_LINE = re.compile(
     r"""
       ['"]\.{3,}['"]
@@ -43,10 +45,10 @@ _PLACEHOLDER_LINE = re.compile(
     | add\ any\ other\ context
     | please\ complete\ the\ following
     | ^\s*(?:\d+[.)]\s*|[-*+]\s*)?see\ error\.?\s*$
-    | ^\s*(?:\d+[.)]|[-*+]|[-*+]\s+\[[\ xX]?\])?\s*(?:\.{2,}|…)?\s*$
+    | ^\s*(?:(?:\d+[.)]|[-*+](?:\s+\[[\ xX]?\])?)\s*)?(?:(?:\.{2,}|…)\s*)?$
     | ^\s*_?no\ response_?\s*$
-    | ^\s*(?:\d+[.)]|[-*+])?\s*(?:n/?a|none|tbd|todo|unknown|-+|_+)\.?\s*$
-    | ^\s*(?:\#|//|--|;)?\s*(?:\d+[.)]\s*|[-*+]\s*)?(?:please\ )?
+    | ^\s*(?:(?:\d+[.)]|[-*+])\s*)?(?:n/?a|none|tbd|todo|unknown|-+|_+)\.?\s*$
+    | ^\s*(?:(?:\#|//|--|;)\s*)?(?:(?:\d+[.)]|[-*+])\s*)?(?:please\ )?
         (?:paste|describe|provide|include|explain|tell\ us|list|write|put)\b.*\b(?:here|below)\b
     """,
     re.I | re.X,
@@ -58,8 +60,9 @@ _FENCE_LINE = re.compile(r"^\s*(?:`{3,}|~{3,})")
 
 # ---------------------------------------------------------- section headings
 
-_MD_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(?P<label>.+?)\s*#*\s*$")
-_BOLD_LINE = re.compile(r"^\s*(?:\*\*|__)(?P<label>[^*_\n]{1,80}?)(?:\*\*|__)\s*:?\s*$")
+MAX_HEADING_CHARS = 500  # a heading label is short; longer lines are cut before matching
+_MD_HEADING = re.compile(r"^\s{0,3}#{1,6}[ \t]+(?P<label>.*)$")
+_BOLD_LINE = re.compile(r"^\s*(?:\*\*|__)(?P<label>[^*_\n]{1,80}?)(?:\*\*|__)\s*(?::\s*)?$")
 _LABEL_LINE = re.compile(
     r"^\s*(?:[-*+]\s+)?(?:\*\*|__)?(?P<label>[A-Za-z][\w /()&.-]{0,40}?)(?:\*\*|__)?\s*:"
     r"(?:\*\*|__)?\s*(?P<rest>.*)$"
@@ -92,15 +95,17 @@ _ENVIRONMENT = re.compile(
     r"|node(?:\.?js)?\s?v?\d+|go\s?1\.\d+|java\s?\d+|jdk\s?\d+|rust\s?1\.\d+|ruby\s?\d|php\s?\d)\b",
     re.I,
 )
-_NUMBERED_ITEM = re.compile(r"^\s*\d+[.)]\s+\S", re.M)
-_BULLET_ITEM = re.compile(r"^\s*[-*+]\s+(?!\[[ xX]?\])(?P<item>\S.*)$", re.M)
+# Multiline patterns use [ \t], not \s: `^\s*` would run across every following
+# blank line from every line start, which is quadratic on long blank runs.
+_NUMBERED_ITEM = re.compile(r"^[ \t]*\d+[.)][ \t]+\S", re.M)
+_BULLET_ITEM = re.compile(r"^[ \t]*[-*+][ \t]+(?!\[[ xX]?\])(?P<item>\S.*)$", re.M)
 _ACTION_VERB = re.compile(
     r"\b(?:run|execute|call|click|open|install|create|start|go|type|enter|set|use|import|send"
     r"|navigate|build|clone|add|press|select|upload|configure|invoke)\b",
     re.I,
 )
 _RUN_PHRASE = re.compile(r"\b(?:run|execute)\s+[`\w./$-]", re.I)
-_PROMPT_LINE = re.compile(r"^\s*(?:\$|>>>|PS>|C:\\>)\s+\S", re.M)
+_PROMPT_LINE = re.compile(r"^[ \t]*(?:\$|>>>|PS>|C:\\>)[ \t]+\S", re.M)
 _EXPECTED = re.compile(r"\b(?:expected|expect|expecting|should)\b", re.I)
 _ACTUAL = re.compile(
     r"\b(?:instead|actual(?:ly)?|but got|fail(?:s|ed|ing)?|crash(?:es|ed|ing)?|errors?|raises?"
@@ -130,6 +135,15 @@ def _clean(text: str) -> str:
     )
 
 
+def _heading_label(line: str) -> str | None:
+    """The text of a markdown or bold-line heading, without closing `#`s, or None."""
+    md = _MD_HEADING.match(line[:MAX_HEADING_CHARS])
+    if md:
+        return md["label"].rstrip().rstrip("#").rstrip()
+    bold = _BOLD_LINE.match(line)
+    return bold["label"] if bold else None
+
+
 def _section_for(label: str) -> Section | None:
     low = label.lower()
     for pattern, section in _SECTION_LABELS:
@@ -157,9 +171,9 @@ def _parse(text: str) -> _Parsed:
             if current is not None and line.strip():
                 parsed.from_headings.add(current)
             continue
-        heading = _MD_HEADING.match(line) or _BOLD_LINE.match(line)
-        if heading:
-            current = _section_for(heading["label"].strip().rstrip(":"))
+        heading = _heading_label(line)
+        if heading is not None:
+            current = _section_for(heading.strip().rstrip(":"))
             continue
         label = _LABEL_LINE.match(line)
         section = _section_for(label["label"]) if label else None

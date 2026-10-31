@@ -25,6 +25,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from rapidfuzz import fuzz
 
+from nomi.extract.artifacts import MAX_CHARS
 from nomi.llm.base import LLM, LLMError
 from nomi.models import Artifacts, Claim, ClaimType, Kind, Submission
 
@@ -43,6 +44,7 @@ _MAX_SNAP_CHARS = 40
 _MAX_HINTS_PER_KIND = 12
 _MAX_HINT_CHARS = 120
 _MAX_CHANGED_FILES = 20
+_ABBREVIATION_WINDOW = 10  # longer than "approx." plus the boundary character before it
 
 LLMClaimType = Literal[
     "behavior",
@@ -276,7 +278,10 @@ def _split_line(work: str, start: int, end: int) -> Iterator[tuple[int, int]]:
     """Sentence spans inside one line; does not break after common abbreviations."""
     piece_start = start
     for match in _SENTENCE_BREAK.finditer(work, start, end):
-        if _ABBREVIATION.search(work, piece_start, match.start()):
+        # Only the few characters before the break can hold the abbreviation; scanning
+        # from piece_start would be quadratic on "e.g. Foo e.g. Foo ...".
+        window = max(piece_start, match.start() - _ABBREVIATION_WINDOW)
+        if _ABBREVIATION.search(work, window, match.start()):
             continue
         yield piece_start, match.start()
         piece_start = match.end()
@@ -311,7 +316,9 @@ def sentences(text: str, *, include_code: bool = False) -> list[_Sentence]:
 
     Block markup (headings, bullets, quotes, checkboxes) is trimmed off the
     ends rather than rewritten, so every unit's text is a verbatim slice.
+    Like `extract_artifacts`, only the first MAX_CHARS characters are read.
     """
+    text = text[:MAX_CHARS]
     work = _masked(text, mask_code=not include_code)
     found: list[_Sentence] = []
     offset = 0
