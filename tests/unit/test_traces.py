@@ -186,3 +186,41 @@ def test_duplicate_and_empty_traces(sample_repo):
 )
 def test_frame_function(raw, expected):
     assert frame_function(raw) == expected
+
+
+# ---------------------------------------------- regression: false accusations
+
+
+def test_bare_file_name_frames_never_fail(make_repo):
+    # B3: `manage.py` in a traceback is usually the reporter's own script
+    ws = make_repo({"example/manage.py": "import sys\n\n\ndef main():\n    return sys.argv\n"})
+    art = trace(frame("manage.py", 22, "<module>"), frame("manage.py", 99, "main"))
+    (check,) = check_stack_traces(art, ws)
+    assert (check.status, check.signal, check.strength) == (CheckStatus.WARN, Signal.NEUTRAL, 0.1)
+    assert "reporter's own files" in check.title
+
+
+def test_installed_frames_from_another_release_only_warn(sample_repo):
+    # B6: site-packages frames are checked against the default branch, not the user's release
+    art = trace(
+        frame("repro.py", 3, "<module>"),
+        frame(f"{SITE}/widget/parser.py", 17, "parse_url"),  # normalize_host in this version
+        frame(f"{SITE}/widget/parser.py", 240, "parse_url"),  # past EOF in this version
+    )
+    (check,) = check_stack_traces(art, sample_repo)
+    assert (check.status, check.signal, check.strength) == (
+        CheckStatus.WARN,
+        Signal.CONTRADICTS,
+        0.3,
+    )
+    assert "different release" in check.title
+
+
+def test_reporter_paths_are_not_missing_project_files(sample_repo):
+    # B1/B2: the reporter's own tests/ dir and home-directory checkout are not this project
+    art = trace(
+        frame("tests/test_downloads.py", 15, "test_download"),
+        frame("/home/me/app/src/widget/helpers.py", 40, "get"),
+    )
+    (check,) = check_stack_traces(art, sample_repo)
+    assert check.status is CheckStatus.INFO and check.signal is Signal.NEUTRAL

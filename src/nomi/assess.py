@@ -79,6 +79,9 @@ GROUNDING_PREFIX = "grounding."
 WARN_CONTRADICTION_CAP = 0.4
 # Reference checks whose failures look like version skew when most references hold.
 _REFERENCE_IDS = ("grounding.file", "grounding.line", "grounding.symbol", "trace.frames")
+# Only positional mismatches can be explained by version drift; a project
+# function or file that exists nowhere cannot.
+_SKEWABLE_IDS = ("grounding.line", "trace.frames")
 
 NO_EVIDENCE = "No verifiable evidence for or against this claim."
 LLM_LIMITATION = (
@@ -386,7 +389,7 @@ def _version_skew(checks: list[Check]) -> list[Check]:
     """
     refs = [c for c in checks if c.id in _REFERENCE_IDS]
     held = [c for c in refs if c.status == CheckStatus.PASS]
-    failed = [c for c in refs if c.status == CheckStatus.FAIL]
+    failed = [c for c in refs if c.status == CheckStatus.FAIL and c.id in _SKEWABLE_IDS]
     if failed and len(held) >= 3 and len(held) >= 2 * len(failed):
         return failed
     return []

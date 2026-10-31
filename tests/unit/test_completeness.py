@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from nomi.extract.artifacts import extract_artifacts
@@ -245,3 +247,49 @@ def test_crlf_and_unicode_body() -> None:
 def test_huge_body_is_bounded() -> None:
     result = assess("lorem ipsum " * 50_000, title="x")
     assert 0.0 <= result.score <= 1.0
+
+
+# ---------------------------------------- regex backtracking (review group D)
+
+BLANKS = " " * 50_000
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("#" + BLANKS + "x", id="D1-heading-blank-run"),
+        pytest.param("# a" + BLANKS + "b", id="D1-heading-label-then-blanks"),
+        pytest.param("**a**" + BLANKS + ":" + BLANKS + "b", id="bold-line"),
+        pytest.param(BLANKS + "b", id="placeholder-empty-bullet"),
+        pytest.param("- [ ]" + BLANKS + "b", id="placeholder-checkbox"),
+        pytest.param("1." + BLANKS + "b", id="placeholder-numbered"),
+        pytest.param("- " + BLANKS + "b", id="placeholder-bullet"),
+        pytest.param("[eg " * 50_000, id="example-bracket"),
+        pytest.param("a" + "\n" * 200_000 + "b", id="multiline-blank-lines"),
+        pytest.param("a" + " \n" * 100_000 + "b", id="multiline-blank-run"),
+    ],
+)
+def test_adversarial_body_is_assessed_in_linear_time(body: str) -> None:
+    start = time.perf_counter()
+    assess_completeness(issue(body, title="x"), Artifacts())
+    assert time.perf_counter() - start < 1.0
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "## Logs ##",
+        "## Logs ##" + " " * 600,
+        "## Logs " + "x" * 600,
+        "**Logs** :   ",
+        "__Logs:__",
+    ],
+)
+def test_heading_variants_still_open_their_section(heading: str) -> None:
+    body = f"{heading}\nsomething went wrong here\n"
+    assert assess_completeness(issue(body, title="x"), Artifacts()).present == [Section.LOGS]
+
+
+def test_template_placeholders_still_blank_out() -> None:
+    body = "## Logs\n- [ ]   ...\n1.  N/A\n// please paste the output here\n[e.g. a log]\n"
+    assert assess_completeness(issue(body, title="x"), Artifacts()).present == []

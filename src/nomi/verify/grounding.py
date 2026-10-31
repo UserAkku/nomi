@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from functools import lru_cache
+from itertools import islice
 from pathlib import PurePosixPath
 
 from rapidfuzz import process
@@ -30,6 +31,7 @@ from nomi.models import (
     EvidenceKind,
     FileRef,
     Signal,
+    StackFrame,
 )
 from nomi.repo.symbols import (
     find_definitions,
@@ -63,10 +65,45 @@ _EXTERNAL_MARKERS = (
     "/.gradle/",
 )
 _PACKAGE_DIRS = ("site-packages", "dist-packages")
+# An installed copy of a package may be another release than the analysed commit.
+_INSTALLED_DIRS = (*_PACKAGE_DIRS, "node_modules", ".venv", "venv")
+_GITHUB_BLOB = re.compile(
+    r"^https?://(?:www\.)?github\.com/(?P<owner>[\w.-]+)/(?P<name>[\w.-]+)/blob/", re.I
+)
+_POSSESSIVE = re.compile(
+    r"\b(?:my|our|mine|ours)\b"
+    r"|\b(?:I|we)(?:'ve|\s+have)?\s+(?:wrote|written|write|defined|define|created|create|added"
+    r"|add|implemented|implement|made|built)\b",
+    re.I,
+)
+# "name in path" phrasing, matched right after a mention of the name (bounded, no backtracking).
+_IN_PATH = re.compile(
+    r"(?:\(\))?`?[ \t]{1,3}(?:(?:is|are|was)[ \t]{1,3})?"
+    r"(?:(?:defined|declared|implemented|located)[ \t]{1,3})?"
+    r"(?:in|inside|within|from)[ \t]{1,3}(?:the[ \t]{1,3})?(?:file[ \t]{1,3})?`?"
+    r"(?P<path>[\w./\\-]{1,300})"
+)
+_FILE_PATH = re.compile(r"[\w./\\-]+\.[A-Za-z0-9]{1,5}")
+_MAX_MENTIONS = 20
 
 
 def _words(text: str) -> frozenset[str]:
     return frozenset(text.split())
+
+
+# Directory names every other project has too: matching one of them says nothing about
+# whether a path points into THIS repository rather than the reporter's own project.
+_GENERIC_DIRS = _words(
+    """
+    src source sources lib libs app apps test tests testing spec specs doc docs example
+    examples sample samples demo demos script scripts bin build dist out tools tool util utils
+    helpers common shared config configs include internal pkg cmd core api main java kotlin
+    scala python js ts resources static public assets components pages views models
+    controllers services routes templates unit integration e2e fixtures vendor packages
+    modules plugins server client web frontend backend com org net io
+    """
+)
+_SCRIPT_MODULES = _words("manage wsgi asgi tasks fabfile noxfile conftest")
 
 
 _USER_FILE_STEMS = _words(
@@ -99,7 +136,6 @@ _DYNAMIC = re.compile(
     r"|[-+]?\b\d+(?:[.,:]\d+)*\b"
     r"|<[^>]*>|\{[^}]*\}|\[[^\]]*\]|\([^)]*\)"
 )
-_PATH_TOKEN = re.compile(r"[\w./\\-]+\.[A-Za-z0-9]{1,5}\b")
 _MIN_FRAGMENT = 12
 _MAX_EXCERPT_LINES = 40
 
@@ -187,13 +223,55 @@ def _repo_layout(ws: Workspace) -> tuple[frozenset[str], frozenset[str], tuple[s
     return top, frozenset(dirs), tuple(list(ws.language_mix())[:5])
 
 
+def _distinctive(name: str) -> bool:
+    return bool(name) and name.lower() not in _GENERIC_DIRS
+
+
+def _project_packages(ws: Workspace) -> frozenset[str]:
+    """The repository's own Python packages whose names are specific to it.
+
+    Top-level scripts (`main.py`, `app.py`, `manage.py`, ...) also count as
+    importable modules, but every other project has them too.
+    """
+    common = _USER_FILE_STEMS | _SCRIPT_MODULES
+    return frozenset(p for p in ws.python_packages if _distinctive(p) and p.lower() not in common)
+
+
+def _dir_chain(dir_parts: list[str], dirs: frozenset[str]) -> list[str]:
+    """The longest leading run of `dir_parts` that is a real directory chain of the repo."""
+    n = 0
+    while n < len(dir_parts) and "/".join(dir_parts[: n + 1]) in dirs:
+        n += 1
+    return dir_parts[:n]
+
+
+def _specific_chain(chain: list[str], minimum: int) -> bool:
+    return len(chain) >= minimum and any(_distinctive(c) for c in chain)
+
+
+def _home_prefix(parts: list[str]) -> int:
+    """How many leading components only locate the reporter's machine (~, /home/<user>, ...)."""
+    i = 1 if parts and (parts[0] == "~" or _DRIVE.match(parts[0] + "/")) else 0
+    head = parts[i].lower() if i < len(parts) else ""
+    if head in ("home", "users"):
+        i += 2
+    elif head == "root":
+        i += 1
+    return min(i, len(parts))
+
+
 def project_path_strength(raw: str, ws: Workspace) -> str | None:
     """How strongly a path mention points INTO this project: 'strong', 'weak' or None.
 
-    'strong': a relative path under a real top-level directory or package of
-    the repository, a site-packages path of the repository's own package, or
-    an absolute path whose tail walks into a real repository directory.
-    'weak': a relative path that merely has one of the repository's main file
+    'strong': a relative path that starts with a real directory chain of the
+    repository (e.g. `src/widget/`) or with its own package or repository
+    name, a site-packages path of the repository's own package, or an
+    absolute path whose tail is project-specific (the repository or package
+    name right before a real top-level directory, or a real directory chain
+    of three or more components). Generic layout names (`src/`, `tests/`,
+    `src/components/`, ...) and home-directory prefixes are shared with the
+    reporter's own projects and never count. 'weak': a relative path under a
+    real top-level directory or with one of the repository's main file
     extensions. None: external (system, other libraries, URLs) or unknown.
     """
     text = raw.strip()
@@ -202,7 +280,7 @@ def project_path_strength(raw: str, ws: Workspace) -> str | None:
     parts = [p for p in normalize_path(text).split("/") if p and p != "."]
     if not parts:
         return None
-    packages = set(ws.python_packages)
+    packages = _project_packages(ws)
     for marker in _PACKAGE_DIRS:
         if marker in parts:
             rest = parts[len(parts) - parts[::-1].index(marker) :]
@@ -210,23 +288,60 @@ def project_path_strength(raw: str, ws: Workspace) -> str | None:
     if "node_modules" in parts:
         return None
     top, dirs, extensions = _repo_layout(ws)
+    repo_name = (ws.repo or ws.root.name).split("/")[-1].lower()
     if _is_absolute(text):
         lowered = "/" + _clean(text).lower().lstrip("/") + "/"
         if any(m in lowered for m in _EXTERNAL_MARKERS):
             return None
-        repo_name = (ws.repo or ws.root.name).split("/")[-1].lower()
-        for i, head in enumerate(parts[:-1]):
-            if head in packages:
+        tail = parts[_home_prefix(parts) :]
+        for i, head in enumerate(tail[:-1]):
+            if head not in top:
+                continue
+            before = tail[i - 1] if i else ""
+            if _distinctive(before) and (before.lower() == repo_name or before in packages):
                 return "strong"
-            if head in top and i + 2 < len(parts) and f"{head}/{parts[i + 1]}" in dirs:
-                return "strong"
-            if head in top and i > 0 and parts[i - 1].lower() == repo_name:
+            if _specific_chain(_dir_chain(tail[i:-1], dirs), 3):
                 return "strong"
         return None
-    if len(parts) >= 2 and (parts[0] in top or parts[0] in packages):
+    first = parts[0]
+    if (
+        len(parts) >= 2
+        and _distinctive(first)
+        and (first in packages or first.lower() == repo_name)
+    ):
         return "strong"
+    if _specific_chain(_dir_chain(parts[:-1], dirs), 2):
+        return "strong"
+    if len(parts) >= 2 and first in top:
+        return "weak"
     if PurePosixPath(parts[-1]).suffix.lower() in extensions:
         return "weak"
+    return None
+
+
+def is_installed_path(raw: str) -> bool:
+    """A path inside an installed copy of a package (site-packages, node_modules, a venv)."""
+    parts = normalize_path(raw).split("/")
+    return any(m in parts for m in _INSTALLED_DIRS)
+
+
+def bare_name_match(raw: str, resolved: str) -> bool:
+    """The report names only a file name, and its match to `resolved` rests on that name."""
+    key = normalize_path(raw)
+    return "/" not in key and (key != resolved or _user_file_like(key))
+
+
+def soft_match(raw: str, resolved: str) -> str | None:
+    """Why a mismatch at `resolved` cannot count as a hard contradiction, or None.
+
+    'installed': the path is an installed copy of the package, which may be
+    another release than the analysed commit. 'bare': the report names only a
+    file name, which may just as well be the reporter's own file.
+    """
+    if is_installed_path(raw):
+        return "installed"
+    if bare_name_match(raw, resolved):
+        return "bare"
     return None
 
 
@@ -265,11 +380,16 @@ def _code_hit_order(hit: GrepHit) -> tuple[int, str, int]:
 
 
 def check_file_refs(artifacts: Artifacts, claims: list[Claim], ws: Workspace) -> list[Check]:
-    """Every cited file must exist, and every cited line must be inside it."""
+    """Every cited file must exist, and every cited line must be inside it.
+
+    Links into other GitHub repositories and references that merely repeat a
+    stack-trace frame (checked by the trace check) are left out.
+    """
+    frames = [f for t in artifacts.stack_traces for f in t.frames]
     groups: dict[str, list[FileRef]] = {}
     for ref in artifacts.file_refs:
         key = normalize_path(ref.path)
-        if key:
+        if key and not _foreign_blob(ref.raw, ws) and not _repeats_frame(ref, key, frames):
             groups.setdefault(key, []).append(ref)
     checks: list[Check] = []
     for key, refs in groups.items():
@@ -278,12 +398,31 @@ def check_file_refs(artifacts: Artifacts, claims: list[Claim], ws: Workspace) ->
         resolved = ws.resolve(key)
         if resolved:
             checks.append(_file_found(ws, key, resolved, ids))
-            checks.extend(_line_checks(ws, resolved, refs, ids))
+            checks.extend(_line_checks(ws, resolved, refs, ids, soft=soft_match(key, resolved)))
             continue
         missing = _file_missing(ws, refs[0].path, key, ids)
         if missing is not None:
             checks.append(missing)
     return checks
+
+
+def _foreign_blob(raw: str, ws: Workspace) -> bool:
+    """A github.com blob link into another repository (or any, when the repo is unknown)."""
+    m = _GITHUB_BLOB.match(raw.strip())
+    if m is None:
+        return False
+    own = (ws.repo or "").strip().strip("/").lower().removesuffix(".git")
+    return not own or f"{m['owner']}/{m['name']}".lower().removesuffix(".git") != own
+
+
+def _repeats_frame(ref: FileRef, key: str, frames: list[StackFrame]) -> bool:
+    """The reference was extracted from a stack-trace frame line of the same file and line."""
+    raw = ref.raw.strip()
+    if not raw or ref.line_end not in (None, ref.line_start):
+        return False
+    return any(
+        f.line == ref.line_start and normalize_path(f.path) == key and raw in f.raw for f in frames
+    )
 
 
 def _file_found(ws: Workspace, key: str, resolved: str, ids: list[str]) -> Check:
@@ -299,7 +438,9 @@ def _file_found(ws: Workspace, key: str, resolved: str, ids: list[str]) -> Check
     )
 
 
-def _line_checks(ws: Workspace, resolved: str, refs: list[FileRef], ids: list[str]) -> list[Check]:
+def _line_checks(
+    ws: Workspace, resolved: str, refs: list[FileRef], ids: list[str], *, soft: str | None = None
+) -> list[Check]:
     spans = dict.fromkeys(
         (r.line_start, r.line_end) for r in refs if r.line_start is not None and r.line_start > 0
     )
@@ -319,12 +460,19 @@ def _line_checks(ws: Workspace, resolved: str, refs: list[FileRef], ids: list[st
                 )
             )
             continue
-        checks.append(_line_check(ws, resolved, start, end, len(lines), ids))
+        checks.append(_line_check(ws, resolved, start, end, len(lines), ids, soft=soft))
     return checks
 
 
 def _line_check(
-    ws: Workspace, path: str, start: int, end: int | None, total: int, ids: list[str]
+    ws: Workspace,
+    path: str,
+    start: int,
+    end: int | None,
+    total: int,
+    ids: list[str],
+    *,
+    soft: str | None = None,
 ) -> Check:
     last = max(start, end or start)
     cited = f"line {start:,}" if last == start else f"lines {start:,}-{last:,}"
@@ -347,9 +495,38 @@ def _line_check(
         if total
         else [file_evidence(ws, path, "the file is empty")]
     )
+    title = f"`{path}` has {total:,} lines, but the report cites line {last:,}"
+    if soft == "installed":
+        return Check(
+            id="grounding.line",
+            title=title,
+            status=CheckStatus.WARN,
+            signal=Signal.CONTRADICTS,
+            strength=0.3,
+            detail=(
+                f"The cited path is an installed copy of the package, which may be a different "
+                f"release than the code {at_commit(ws)}."
+            ),
+            claim_ids=ids,
+            evidence=evidence,
+        )
+    if soft == "bare":
+        return Check(
+            id="grounding.line",
+            title=title,
+            status=CheckStatus.WARN,
+            signal=Signal.NEUTRAL,
+            strength=0.1,
+            detail=(
+                "The report names only the file name, so it may be the reporter's own file "
+                f"rather than `{path}`."
+            ),
+            claim_ids=ids,
+            evidence=evidence,
+        )
     return Check(
         id="grounding.line",
-        title=f"`{path}` has {total:,} lines, but the report cites line {last:,}",
+        title=title,
         status=CheckStatus.FAIL,
         signal=Signal.CONTRADICTS,
         strength=0.75,
@@ -512,8 +689,19 @@ def _check_symbol(name: str, artifacts: Artifacts, claims: list[Claim], ws: Work
 def _project_attribution(
     name: str, parts: list[str], artifacts: Artifacts, claims: list[Claim], ws: Workspace
 ) -> tuple[str, str | None] | None:
-    """Why the report ties `name` to this project, plus a related real file if any."""
-    if len(parts) > 1 and parts[0] in ws.python_packages:
+    """Why the report ties `name` to this project, plus a related real file if any.
+
+    Only explicit attribution counts: the project's own package as the first
+    dotted component, an owner class defined in the repository, `name in path`
+    or `path::name` phrasing, or a stack-trace frame inside a repository file.
+    Merely sharing a sentence with a real path does not, and neither does
+    anything the reporter calls their own ("my helper", "I wrote").
+    """
+    names = [name, ".".join(parts)]
+    mentioning = [c for c in claims if claim_ids_for([c], names, word=True)]
+    if any(_POSSESSIVE.search(s) for c in mentioning for s in (c.text, c.quote)):
+        return None
+    if len(parts) > 1 and parts[0] in _project_packages(ws):
         return f"`{parts[0]}` is this repository's own package", None
     if len(parts) > 1:
         owners = [
@@ -522,31 +710,47 @@ def _project_attribution(
         if owners:
             owner = owners[0]
             return f"`{parts[-2]}` is defined at `{owner.path}:{owner.line}`", owner.path
-    for claim in claims:
-        if not claim_ids_for([claim], [name, ".".join(parts)], word=True):
-            continue
-        for mention in _paths_in_claim(claim, artifacts):
-            resolved = ws.resolve(mention)
-            if resolved:
-                return f"the same claim cites `{resolved}`, which exists", resolved
+    for claim in mentioning:
+        resolved = _named_in_path(names, claim, ws)
+        if resolved:
+            return f"the report places it in `{resolved}`, which exists", resolved
     for trace in artifacts.stack_traces:
         for frame in trace.frames:
             if frame.function and _last_component(frame.function) == parts[-1]:
                 resolved = ws.resolve(frame.path)
-                if resolved:
+                if resolved and soft_match(frame.path, resolved) is None:
                     return f"a stack trace places it in `{resolved}`", resolved
     return None
 
 
-def _paths_in_claim(claim: Claim, artifacts: Artifacts) -> list[str]:
-    found = [e for e in claim.entities if "/" in e or _PATH_TOKEN.fullmatch(e.strip())]
-    for ref in artifacts.file_refs:
-        needles = [n for n in (ref.path.strip(), ref.raw.strip()) if n]
-        if any(n in s for n in needles for s in (claim.text, claim.quote)):
-            found.append(ref.path)
+def _named_in_path(names: list[str], claim: Claim, ws: Workspace) -> str | None:
+    """A repository file the claim explicitly places a name in (`name in path`, `path::name`)."""
     for text in (claim.text, claim.quote):
-        found.extend(_PATH_TOKEN.findall(text))
-    return [p for p in dict.fromkeys(found) if p.strip()]
+        for name in dict.fromkeys(names):
+            mentions = re.finditer(rf"(?<![\w$.]){re.escape(name)}(?![\w$])", text)
+            for mention in islice(mentions, _MAX_MENTIONS):
+                after = _IN_PATH.match(text, mention.end())
+                paths = [after["path"].rstrip(".-")] if after else []
+                paths.append(_path_before_colons(text, mention.start()))
+                for path in paths:
+                    if not _FILE_PATH.fullmatch(path):
+                        continue
+                    resolved = ws.resolve(path)
+                    if resolved and not bare_name_match(path, resolved):
+                        return resolved
+    return None
+
+
+def _path_before_colons(text: str, end: int) -> str:
+    """The path token of `path::name` phrasing ending right before `end`, or ''."""
+    lead = text[max(0, end - 3) : end]
+    if not lead.endswith(("::", "::`")):
+        return ""
+    stop = end - (3 if lead.endswith("`") else 2)
+    start = stop
+    while start > max(0, stop - 300) and (text[start - 1].isalnum() or text[start - 1] in "_./\\-"):
+        start -= 1
+    return text[start:stop]
 
 
 def _last_component(function: str) -> str:

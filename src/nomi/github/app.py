@@ -14,7 +14,10 @@ Safety rules, in the order they are applied:
 * events sent by bots (including Nomi's own comments) are ignored, so the App
   can never trigger itself in a loop;
 * the ``/nomi`` re-run command is honoured only from owners, members and
-  collaborators, so strangers cannot burn the maintainer's compute.
+  collaborators, so strangers cannot burn the maintainer's compute;
+* at most one job per issue / pull request waits in the queue (a burst of
+  pushes runs once, plus one follow-up if it arrives mid-run), and the queue
+  is bounded: when it is full new events are refused with 503.
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ JobHandler = Callable[[TriageJob], None]
 
 MAX_PAYLOAD_BYTES = 25 * 1024 * 1024  # GitHub caps webhook payloads at 25 MB
 DELIVERY_MEMORY = 1000
+MAX_QUEUED_JOBS = 100
 ISSUE_ACTIONS = frozenset({"opened", "reopened"})
 PULL_REQUEST_ACTIONS = frozenset({"opened", "reopened", "synchronize", "ready_for_review"})
 TRUSTED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
@@ -98,20 +102,65 @@ class _DeliveryLog:
                 self._ids.popitem(last=False)
             return False
 
+    def forget(self, delivery_id: str) -> None:
+        """Drop ``delivery_id`` so a redelivery of a refused event is processed."""
+        with self._lock:
+            self._ids.pop(delivery_id, None)
+
+
+class _PendingTargets:
+    """The issues / PRs with a job waiting in the queue, so each waits at most once."""
+
+    def __init__(self) -> None:
+        self._keys: set[tuple[str, int]] = set()
+        self._lock = threading.Lock()
+
+    def enqueue(self, jobs: queue.Queue[Any], job: TriageJob) -> str:
+        """Queue ``job``: "queued", "coalesced" (its target already waits) or "full"."""
+        key = _target_key(job)
+        with self._lock:
+            if key in self._keys:
+                return "coalesced"
+            try:
+                jobs.put_nowait(job)
+            except queue.Full:
+                return "full"
+            self._keys.add(key)
+        return "queued"
+
+    def started(self, job: TriageJob) -> None:
+        """The worker took ``job``: a later event for its target needs a new run."""
+        with self._lock:
+            self._keys.discard(_target_key(job))
+
+
+def _target_key(job: TriageJob) -> tuple[str, int]:
+    return job.repo.casefold(), job.number
+
 
 class _Worker:
     """One daemon thread running jobs in order; a failing job never kills it."""
 
-    def __init__(self, jobs: queue.Queue[Any], handler: JobHandler) -> None:
+    def __init__(
+        self,
+        jobs: queue.Queue[Any],
+        handler: JobHandler,
+        *,
+        on_start: Callable[[TriageJob], None] | None = None,
+    ) -> None:
         self._jobs = jobs
         self._handler = handler
+        self._on_start = on_start
         self._thread = threading.Thread(target=self._run, name="nomi-triage-worker", daemon=True)
 
     def start(self) -> None:
         self._thread.start()
 
     def stop(self, timeout: float = 5.0) -> None:
-        self._jobs.put(_STOP)
+        try:
+            self._jobs.put(_STOP, timeout=timeout)
+        except queue.Full:
+            logger.warning("triage queue still full at shutdown; abandoning queued jobs")
         self._thread.join(timeout)
 
     def _run(self) -> None:
@@ -120,6 +169,8 @@ class _Worker:
             try:
                 if job is _STOP:
                     return
+                if self._on_start is not None:
+                    self._on_start(job)
                 self._handler(job)
             except Exception:
                 logger.exception(
@@ -209,13 +260,14 @@ def create_app(settings: Settings | None = None, *, handler: JobHandler | None =
     """Build the webhook server; ``handler`` replaces the real pipeline in tests."""
     settings = settings or get_settings()
     job_handler = handler or _pipeline_handler(settings)
-    jobs: queue.Queue[Any] = queue.Queue()
+    jobs: queue.Queue[Any] = queue.Queue(maxsize=MAX_QUEUED_JOBS)
+    pending = _PendingTargets()
     deliveries = _DeliveryLog()
     secret = settings.webhook_secret.get_secret_value() if settings.webhook_secret else ""
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        worker = _Worker(jobs, job_handler)
+        worker = _Worker(jobs, job_handler, on_start=pending.started)
         worker.start()
         try:
             yield
@@ -252,9 +304,13 @@ def create_app(settings: Settings | None = None, *, handler: JobHandler | None =
             return _error(400, str(exc))
         if isinstance(decision, str):
             return _ignored(decision)
-        jobs.put(decision)
-        logger.info("queued %s#%d (%s)", decision.repo, decision.number, decision.trigger)
-        return JSONResponse({"status": "queued"}, status_code=202)
+        status = pending.enqueue(jobs, decision)
+        if status == "full":
+            deliveries.forget(delivery_id)
+            logger.warning("triage queue full; refused %s#%d", decision.repo, decision.number)
+            return _error(503, "triage queue is full; redeliver the event later")
+        logger.info("%s %s#%d (%s)", status, decision.repo, decision.number, decision.trigger)
+        return JSONResponse({"status": status}, status_code=202)
 
     return app
 

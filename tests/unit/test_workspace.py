@@ -1,15 +1,22 @@
+import os
+import signal
+import subprocess
+import time
+from contextlib import contextmanager
 from datetime import UTC, datetime
 
 import pytest
 
 from nomi.repo.workspace import (
+    MAX_FILE_BYTES,
     Workspace,
     classify_path,
     normalize_path,
     open_github_workspace,
     resolve_commit,
+    split_lines,
 )
-from tests.conftest import git
+from tests.conftest import GIT_ENV, git
 
 
 def test_files_and_exists(sample_repo):
@@ -176,3 +183,144 @@ def test_rejects_option_like_refs(make_repo, tmp_path, ref):
         open_github_workspace(
             "acme/up4", cache_dir=tmp_path / "c4", ref=ref, remote_url=str(ws.root)
         )
+
+
+# --------------------------------------------------- review hardening (A1-A3)
+
+
+class _Blocked(Exception):  # deliberately not an OSError, so readers cannot swallow it
+    pass
+
+
+@contextmanager
+def _deadline(seconds: int):
+    """Fail instead of hanging forever when a read blocks (e.g. on a FIFO)."""
+
+    def _expired(signum, frame):
+        raise _Blocked(f"read did not return within {seconds}s")
+
+    previous = signal.signal(signal.SIGALRM, _expired)
+    signal.alarm(seconds)
+    started = time.perf_counter()
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+    assert time.perf_counter() - started < 1
+
+
+def _commit_symlink(ws: Workspace, rel: str, target: str) -> None:
+    link = ws.root / rel
+    link.parent.mkdir(parents=True, exist_ok=True)
+    os.symlink(target, link)
+    git(ws.root, "add", "-A")
+    git(ws.root, "commit", "-q", "-m", "add link")
+
+
+def test_tracked_symlink_outside_root_is_not_read(make_repo, tmp_path):
+    secret = tmp_path / "id_rsa"
+    secret.write_text("TOPSECRET_PRIVATE_KEY\n")
+    ws = make_repo({"pkg/real.py": "x = 1\n"})
+    _commit_symlink(ws, "pkg/keys.py", "../../id_rsa")
+    fresh = Workspace(ws.root, repo="acme/widget")
+    assert "pkg/keys.py" in fresh.files  # git tracks the link itself
+    assert fresh.read_text("pkg/keys.py") is None
+    assert fresh.lines("pkg/keys.py") is None
+    assert fresh.excerpt("pkg/keys.py", 1) is None
+    assert fresh.read_text("pkg/real.py") == "x = 1\n"
+    assert fresh.grep("TOPSECRET_PRIVATE_KEY") == []
+    # the Python fallback (no git grep) must use the same safe reader
+    assert fresh._py_grep("TOPSECRET_PRIVATE_KEY", True, False, False, 10, None) == []
+
+
+def test_tracked_symlink_inside_root_is_not_followed(make_repo):
+    ws = make_repo({"pkg/real.py": "x = 1\n"})
+    _commit_symlink(ws, "pkg/alias.py", "real.py")
+    fresh = Workspace(ws.root)
+    assert fresh.read_text("pkg/alias.py") is None
+
+
+def test_tracked_symlink_to_dev_zero_returns_quickly(make_repo):
+    ws = make_repo({"a.py": "x = 1\n"})
+    _commit_symlink(ws, "zero.py", "/dev/zero")
+    fresh = Workspace(ws.root)
+    with _deadline(5):
+        assert fresh.read_text("zero.py") is None
+
+
+def test_fifo_in_checkout_returns_quickly(make_repo, tmp_path):
+    ws = make_repo({"pipe.py": "x = 1\n", "ok.py": "y = 2\n"})
+    (ws.root / "pipe.py").unlink()
+    os.mkfifo(ws.root / "pipe.py")  # a tampered checkout: tracked path is now a FIFO
+    fresh = Workspace(ws.root)
+    with _deadline(5):
+        assert fresh.read_text("pipe.py") is None
+        assert fresh._py_grep("x = 1", True, False, False, 10, None) == []
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    os.mkfifo(plain / "fifo.py")
+    (plain / "ok.py").write_text("y = 2\n")
+    outside_git = Workspace(plain)
+    assert "fifo.py" in outside_git.files
+    with _deadline(5):
+        assert outside_git.read_text("fifo.py") is None
+        assert outside_git.read_text("ok.py") == "y = 2\n"
+
+
+def test_oversized_file_is_not_read(make_repo):
+    ws = make_repo({"big.txt": "a" * (MAX_FILE_BYTES + 1), "edge.txt": "b" * MAX_FILE_BYTES})
+    assert ws.read_text("big.txt") is None
+    assert ws.read_text("edge.txt") == "b" * MAX_FILE_BYTES
+
+
+def test_lines_count_only_newlines(make_repo):
+    text = "def alpha():\n    return 1\n\f\ndef beta():\n    return 2\n"
+    ws = make_repo({"m.py": text, "odd.txt": "a\vb\x1cc\x85d\u2028e\u2029f\nsecond\r\nthird"})
+    lines = ws.lines("m.py")
+    assert lines is not None and lines[3] == "def beta():" and len(lines) == 5
+    assert ws.excerpt("m.py", 4) == "4 | def beta():"
+    assert ws.lines("odd.txt") == ["a\vb\x1cc\x85d\u2028e\u2029f", "second", "third"]
+    assert [h.line for h in ws.grep("beta")] == [4]
+    assert [h.line for h in ws._py_grep("beta", True, False, False, 10, None)] == [4]
+    assert [h.line for h in ws.grep("second")] == [2]
+    assert [h.line for h in ws._py_grep("second", True, False, False, 10, None)] == [2]
+
+
+def test_split_lines_matches_git_numbering():
+    assert split_lines("") == []
+    assert split_lines("\n") == [""]
+    assert split_lines("a\nb") == ["a", "b"]
+    assert split_lines("a\r\nb\r\n") == ["a", "b"]
+    assert split_lines("a\f\nb\n") == ["a\f", "b"]
+
+
+def test_resolve_commit_follows_first_parent(make_repo):
+    def commit_at(root, day: int, message: str) -> None:
+        stamp = f"2030-01-{day:02d}T12:00:00+00:00"
+        subprocess.run(
+            ["git", "commit", "-q", "--allow-empty", "-m", message],
+            cwd=root,
+            check=True,
+            env={**GIT_ENV, "GIT_COMMITTER_DATE": stamp, "GIT_AUTHOR_DATE": stamp},
+        )
+
+    ws = make_repo({"a.py": "x = 1\n"}, name="history")
+    root = ws.root
+    commit_at(root, 1, "A")
+    git(root, "checkout", "-q", "-b", "feature")
+    commit_at(root, 5, "F")
+    feature = git(root, "rev-parse", "HEAD").strip()
+    git(root, "checkout", "-q", "main")
+    commit_at(root, 3, "B")
+    main_b = git(root, "rev-parse", "HEAD").strip()
+    merge_stamp = "2030-01-10T12:00:00+00:00"
+    subprocess.run(
+        ["git", "merge", "-q", "--no-ff", "-m", "merge feature", "feature"],
+        cwd=root,
+        check=True,
+        env={**GIT_ENV, "GIT_COMMITTER_DATE": merge_stamp, "GIT_AUTHOR_DATE": merge_stamp},
+    )
+    resolved = resolve_commit(root, at=datetime(2030, 1, 6, tzinfo=UTC))
+    assert resolved == main_b
+    assert resolved != feature

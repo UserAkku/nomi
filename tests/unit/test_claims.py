@@ -7,6 +7,7 @@ from typing import Any, get_args
 
 import pytest
 
+from nomi.extract.artifacts import MAX_CHARS
 from nomi.extract.claims import (
     LLMClaimType,
     _LLMClaims,
@@ -587,3 +588,40 @@ def test_run_on_line_is_chunked_so_late_claims_survive() -> None:
     assert claim.quote.endswith("then parse_url crashes on empty input.")
     assert len(claim.quote) <= 300
     assert claim.quote in submission.text
+
+
+# ---------------------------------------- regex backtracking (review group D)
+
+
+def test_abbreviation_heavy_line_is_split_in_linear_time() -> None:
+    text = "Use e.g. Foo " * 20_000
+    started = time.perf_counter()
+    units = sentences(text)
+    assert time.perf_counter() - started < 1.0
+    assert all(text[u.start : u.end] == u.text for u in units)
+
+
+def test_rules_claims_on_abbreviation_heavy_report_are_fast() -> None:
+    submission = issue(title="x", body="Use e.g. Foo " * 20_000)
+    started = time.perf_counter()
+    extract_claims(submission, NO_ARTIFACTS, None)
+    assert time.perf_counter() - started < 1.0
+
+
+def test_abbreviations_still_do_not_end_sentences() -> None:
+    text = "It takes approx. Ten seconds, e.g. Today. Then it fails. Ask Dr. Who."
+    assert [u.text for u in sentences(text)] == [
+        "It takes approx. Ten seconds, e.g. Today.",
+        "Then it fails.",
+        "Ask Dr. Who.",
+    ]
+
+
+def test_sentences_read_at_most_max_chars() -> None:
+    text = "Aa bb cc. " * 30_000
+    assert len(text) > MAX_CHARS
+    started = time.perf_counter()
+    units = sentences(text)
+    assert time.perf_counter() - started < 1.0
+    assert units and max(u.end for u in units) <= MAX_CHARS
+    assert all(text[u.start : u.end] == u.text for u in units)

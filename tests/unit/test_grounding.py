@@ -12,6 +12,7 @@ from nomi.models import (
     StackFrame,
     StackTrace,
 )
+from nomi.repo.workspace import Workspace
 from nomi.verify.grounding import (
     at_commit,
     check_cli_flags,
@@ -169,9 +170,10 @@ def test_user_files_are_not_accused(sample_repo):
 
 
 def test_project_path_strength(curl_repo):
-    assert project_path_strength("lib/fake.c", curl_repo) == "strong"
+    assert project_path_strength("lib/fake.c", curl_repo) == "weak"  # generic top-level dir only
+    assert project_path_strength("lib/vtls/fake.c", curl_repo) == "strong"
     assert project_path_strength("/home/me/curl/lib/fake.c", curl_repo) == "strong"
-    assert project_path_strength("/home/me/build/lib/vtls/fake.c", curl_repo) == "strong"
+    assert project_path_strength("/home/me/build/lib/vtls/fake.c", curl_repo) is None  # 2-dir chain
     assert project_path_strength("/home/me/other/lib/fake.c", curl_repo) is None
     assert project_path_strength("fake.c", curl_repo) == "weak"
     assert project_path_strength("", curl_repo) is None
@@ -414,3 +416,149 @@ def test_claim_ids_for():
     assert claim_ids_for(claims, ["parse_url"]) == ["C1", "C2", "C3"]
     assert claim_ids_for(claims, ["parse_url"], word=True) == ["C1", "C3"]
     assert claim_ids_for(claims, ["", "  "]) == []
+
+
+# ---------------------------------------------- regression: false accusations
+
+SITE = "/home/u/.venv/lib/python3.12/site-packages"
+
+
+def test_generic_top_level_relative_path_is_only_weak(sample_repo, make_repo):
+    # B1: `tests/test_downloads.py:15` from the reporter's own pytest output
+    assert project_path_strength("tests/test_downloads.py", sample_repo) == "weak"
+    assert project_path_strength("src/mycompany/billing.py", sample_repo) == "weak"
+    assert project_path_strength("src/widget/fabricated.py", sample_repo) == "strong"
+    assert project_path_strength("widget/fabricated.py", sample_repo) == "strong"
+    art = Artifacts(file_refs=[ref("tests/test_downloads.py", 15), ref("docs/downloads.md", 3)])
+    checks = check_file_refs(art, [], sample_repo)
+    assert checks and all(c.status is not CheckStatus.FAIL for c in checks)
+    layout = make_repo({"tests/unit/test_a.py": "x = 1\n"}, name="layout")
+    assert project_path_strength("tests/unit/test_downloads.py", layout) == "weak"
+
+
+def test_home_directory_paths_need_a_project_specific_tail(make_repo):
+    # B2: the reporter's own app shares the common `src/components` layout
+    ws = make_repo(
+        {
+            "src/components/Button.jsx": "export const Button = () => null;\n",
+            "src/components/forms/Input.jsx": "export const Input = () => null;\n",
+        },
+        repo="acme/ui-kit",
+        name="ui-kit",
+    )
+    reporter = "/Users/x/app/src/components/CheckoutForm.jsx"
+    assert project_path_strength(reporter, ws) is None
+    assert project_path_strength("/home/me/shop/src/components/Cart.jsx", ws) is None
+    assert project_path_strength("C:\\Users\\me\\shop\\src\\components\\Cart.jsx", ws) is None
+    assert project_path_strength("src/components/CheckoutForm.jsx", ws) == "weak"
+    assert check_file_refs(Artifacts(file_refs=[ref(reporter, 12)]), [], ws) == []
+    # the repository's name before a real top-level directory, or a 3-dir chain, still counts
+    assert project_path_strength("/home/me/ui-kit/src/components/Fake.jsx", ws) == "strong"
+    assert project_path_strength("/home/me/shop/src/components/forms/Fake.jsx", ws) == "strong"
+
+
+def test_bare_file_name_matched_by_basename_never_fails(make_repo):
+    # B3: `manage.py` / `app.py` in a traceback are usually the reporter's own files
+    ws = make_repo(
+        {
+            "example/manage.py": "import sys\n\n\ndef main():\n    return sys.argv\n",
+            "app.py": "x = 1\n",
+        },
+        name="bare",
+    )
+    for bare in ("manage.py", "app.py"):
+        checks = check_file_refs(Artifacts(file_refs=[ref(bare, 22)]), [], ws)
+        (line,) = by_id(checks, "grounding.line")
+        assert (line.status, line.signal, line.strength) == (CheckStatus.WARN, Signal.NEUTRAL, 0.1)
+    _, cited = check_file_refs(Artifacts(file_refs=[ref("example/manage.py", 22)]), [], ws)
+    assert cited.status is CheckStatus.FAIL  # with its directory it is still a contradiction
+
+
+def test_blob_links_to_other_repositories_are_not_checked(sample_repo):
+    # B4: a link into psf/requests is not a file of acme/widget
+    def blob(url: str, path: str, line: int) -> FileRef:
+        return FileRef(path=path, line_start=line, raw=url)
+
+    foreign = [
+        blob(
+            "https://github.com/psf/requests/blob/main/src/requests/sessions.py#L780",
+            "src/requests/sessions.py",
+            780,
+        ),
+        blob(
+            "https://github.com/someone/widget-fork/blob/main/src/widget/parser.py#L999",
+            "src/widget/parser.py",
+            999,
+        ),
+    ]
+    assert check_file_refs(Artifacts(file_refs=foreign), [], sample_repo) == []
+    own = blob(
+        "https://github.com/ACME/Widget/blob/main/src/widget/parser.py#L9",
+        "src/widget/parser.py",
+        9,
+    )
+    _, line_check = check_file_refs(Artifacts(file_refs=[own]), [], sample_repo)
+    assert line_check.status is CheckStatus.PASS
+    unknown = Workspace(sample_repo.root)  # repository unknown: skip every blob link
+    assert check_file_refs(Artifacts(file_refs=[own, *foreign]), [], unknown) == []
+
+
+def test_reporters_own_helper_is_not_attributed_to_the_project(sample_repo, make_repo):
+    # B5: sharing a sentence with a real repository file is no attribution
+    claims = [
+        Claim(
+            id="C1",
+            text="load_feed_urls() returns the list, then src/widget/parser.py raises",
+            entities=["load_feed_urls()", "src/widget/parser.py"],
+        )
+    ]
+    (check,) = check_symbols(Artifacts(symbols=["load_feed_urls"]), claims, sample_repo)
+    assert check.status is CheckStatus.WARN and check.strength == 0.3
+    mine = [Claim(id="C1", text="My helper load_feed_urls in src/widget/net.py wraps the client")]
+    (check,) = check_symbols(Artifacts(symbols=["load_feed_urls"]), mine, sample_repo)
+    assert check.status is CheckStatus.WARN
+    wrote = [Claim(id="C1", text="I wrote Client.fetch_many to batch requests")]
+    (check,) = check_symbols(Artifacts(symbols=["Client.fetch_many"]), wrote, sample_repo)
+    assert check.status is CheckStatus.WARN
+    feeds = make_repo({"example/feeds.py": "def parse():\n    return []\n"}, name="feeds")
+    frames = [StackFrame(path="feeds.py", line=2, function="load_feed_urls", raw="")]
+    art = Artifacts(
+        symbols=["load_feed_urls"], stack_traces=[StackTrace(language="python", frames=frames)]
+    )
+    (check,) = check_symbols(art, [], feeds)
+    assert check.status is CheckStatus.WARN  # a bare frame file name may be the reporter's
+    # explicit `name in path` and `path::name` phrasing still attributes
+    explicit = [
+        Claim(id="C1", text="fetch_pages in src/widget/net.py loops forever"),
+        Claim(id="C2", text="see src/widget/parser.py::parse_uri for the crash"),
+    ]
+    checks = check_symbols(Artifacts(symbols=["fetch_pages", "parse_uri"]), explicit, sample_repo)
+    assert [(c.status, c.evidence[0].path) for c in checks] == [
+        (CheckStatus.FAIL, "src/widget/net.py"),
+        (CheckStatus.FAIL, "src/widget/parser.py"),
+    ]
+
+
+def test_installed_package_line_past_eof_is_a_warning(sample_repo):
+    # B6: an installed copy may be an older release than the analysed commit
+    art = Artifacts(file_refs=[ref(f"{SITE}/widget/parser.py", 240)])
+    _, line = check_file_refs(art, [], sample_repo)
+    assert (line.status, line.signal, line.strength) == (CheckStatus.WARN, Signal.CONTRADICTS, 0.3)
+    assert "different release" in line.detail
+
+
+def test_file_ref_repeating_a_trace_frame_is_counted_once(sample_repo):
+    # B6: the trace check already judges this frame
+    path = "src/widget/parser.py"
+    raw = f'File "{path}", line 240, in parse_url'
+    frame = StackFrame(path=path, line=240, function="parse_url", raw=raw)
+    traces = [StackTrace(language="python", frames=[frame])]
+    from_trace = FileRef(path=path, line_start=240, raw=f'{path}", line 240')
+    assert (
+        check_file_refs(Artifacts(file_refs=[from_trace], stack_traces=traces), [], sample_repo)
+        == []
+    )
+    from_prose = FileRef(path=path, line_start=240, raw=f"`{path}` line 240")
+    art = Artifacts(file_refs=[from_prose], stack_traces=traces)
+    _, line_check = check_file_refs(art, [], sample_repo)
+    assert line_check.status is CheckStatus.FAIL  # the reporter's own citation still counts

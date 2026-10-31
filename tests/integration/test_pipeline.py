@@ -14,6 +14,7 @@ from nomi.models import (
     Kind,
     OverallVerdict,
     Report,
+    Signal,
     Submission,
     Verdict,
 )
@@ -51,7 +52,9 @@ def test_fabricated_security_report_is_contradicted_offline():
     failed = {c.id for c in report.checks if c.status is CheckStatus.FAIL}
     assert "grounding.symbol" in failed  # mh_easy_setopt_url_safe() does not exist
     assert "grounding.line" in failed  # lib/easy.c has 62 lines, report cites 412
-    assert "grounding.file" in failed  # lib/vtls/openssl_ext.c does not exist
+    # lib/vtls/openssl_ext.c does not exist; under a generic top-level dir it is a
+    # contradicting warning rather than a hard failure (precision over recall)
+    assert any(c.id == "grounding.file" and c.signal is Signal.CONTRADICTS for c in report.checks)
     assert any(c.verdict is Verdict.CONTRADICTED for c in report.claims)
     assert report.model is None  # deterministic run is labelled as such
     assert_evidence_is_real(report, ws)

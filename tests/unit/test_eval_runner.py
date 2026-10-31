@@ -11,8 +11,16 @@ from typing import Any
 
 import pytest
 
+import nomi
+import nomi.eval.runner as runner_module
 from nomi.eval.dataset import EvalItem
-from nomi.eval.runner import load_predictions, report_filename, run_eval
+from nomi.eval.runner import (
+    ManifestMismatchError,
+    dataset_fingerprint,
+    load_predictions,
+    report_filename,
+    run_eval,
+)
 from nomi.models import (
     Assessment,
     Check,
@@ -227,10 +235,10 @@ def test_duplicate_items_are_analysed_once(tmp_path: Path) -> None:
     assert read_rows(tmp_path)[0]["gold"] == "cannot_reproduce"
 
 
-def test_metrics_cover_every_row_in_the_file(tmp_path: Path) -> None:
+def test_metrics_cover_only_the_selected_items(tmp_path: Path) -> None:
     run_eval([make_item(1), make_item(2)], FakeAnalyzer(), out_dir=tmp_path)
     metrics = run_eval([make_item(10), make_item(11)], FakeAnalyzer(), out_dir=tmp_path)
-    assert metrics["n"] == 4
+    assert metrics["n"] == 2  # rows of other items in the file are not scored
 
 
 def test_markdown_is_skipped_when_renderer_is_unavailable(
@@ -303,3 +311,99 @@ def test_progress_callback_receives_rows(tmp_path: Path) -> None:
     callback: Callable[[int, int, dict[str, Any]], None] = lambda d, t, row: seen.append(row)  # noqa: E731
     run_eval([make_item(1)], FakeAnalyzer(fail={1}), out_dir=tmp_path, on_progress=callback)
     assert seen[0]["error"].startswith("RuntimeError") and seen[0]["gold"] == "cannot_reproduce"
+
+
+# ---------------------------------------------------------------- review fixes
+
+
+def test_limited_rerun_scores_only_the_selected_items(tmp_path: Path) -> None:
+    items = [make_item(n) for n in range(1, 6)]
+    run_eval(items, FakeAnalyzer(wrong={3, 4, 5}), out_dir=tmp_path)
+    again = FakeAnalyzer()
+    metrics = run_eval(items, again, out_dir=tmp_path, limit=2)
+    assert again.calls == []
+    assert metrics["n"] == 2 and metrics["accuracy"] == 1.0
+    assert json.loads((tmp_path / "metrics.json").read_text(encoding="utf-8"))["n"] == 2
+
+
+def test_gold_comes_from_the_current_item_not_the_stored_row(tmp_path: Path) -> None:
+    run_eval([make_item(1)], FakeAnalyzer(), out_dir=tmp_path)  # gold cannot_reproduce
+    relabelled = FakeAnalyzer()
+    metrics = run_eval([make_item(1, "invalid")], relabelled, out_dir=tmp_path)
+    assert relabelled.calls == []
+    assert metrics["n"] == 1 and metrics["correct"] == 0
+    assert metrics["confusion"]["invalid"]["cannot_reproduce"] == 1
+
+
+CONFIG = {"dataset": "/data/d.jsonl", "dataset_sha256": "abc", "model": "qwen", "sandbox": False}
+
+
+def test_manifest_is_written_with_the_run_configuration(tmp_path: Path) -> None:
+    run_eval([make_item(1)], FakeAnalyzer(), out_dir=tmp_path, config=CONFIG)
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest == {**CONFIG, "nomi_version": nomi.__version__}
+    assert run_eval([make_item(1)], FakeAnalyzer(), out_dir=tmp_path, config=CONFIG)["n"] == 1
+
+
+@pytest.mark.parametrize(
+    "change", [{"dataset_sha256": "def"}, {"model": None}, {"sandbox": True}, {"model": "llama"}]
+)
+def test_resume_with_a_different_configuration_is_refused(
+    tmp_path: Path, change: dict[str, Any]
+) -> None:
+    items = [make_item(1), make_item(2)]
+    run_eval(items, FakeAnalyzer(), out_dir=tmp_path, config=CONFIG, limit=1)
+    before = (tmp_path / "predictions.jsonl").read_bytes()
+    analyzer = FakeAnalyzer()
+    with pytest.raises(ManifestMismatchError, match="--fresh") as info:
+        run_eval(items, analyzer, out_dir=tmp_path, config={**CONFIG, **change})
+    assert next(iter(change)) in str(info.value)
+    assert analyzer.calls == []
+    assert (tmp_path / "predictions.jsonl").read_bytes() == before
+
+    fresh = run_eval(items, analyzer, out_dir=tmp_path, config={**CONFIG, **change}, resume=False)
+    assert fresh["n"] == 2 and len(analyzer.calls) == 2
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest == {**CONFIG, **change, "nomi_version": nomi.__version__}
+
+
+def test_resume_after_a_nomi_upgrade_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_eval([make_item(1)], FakeAnalyzer(), out_dir=tmp_path, config=CONFIG)
+    monkeypatch.setattr(runner_module, "__version__", "99.0")
+    with pytest.raises(ManifestMismatchError, match="nomi_version"):
+        run_eval([make_item(1)], FakeAnalyzer(), out_dir=tmp_path, config=CONFIG)
+
+
+def test_unreadable_manifest_blocks_resume_but_an_empty_run_does_not(tmp_path: Path) -> None:
+    run_eval([make_item(1)], FakeAnalyzer(), out_dir=tmp_path / "a", config=CONFIG)
+    (tmp_path / "a" / "manifest.json").write_text("{not json", encoding="utf-8")
+    with pytest.raises(ManifestMismatchError, match="unreadable"):
+        run_eval([make_item(1)], FakeAnalyzer(), out_dir=tmp_path / "a", config=CONFIG)
+
+    run_eval([make_item(1)], FakeAnalyzer(), out_dir=tmp_path / "b", config=CONFIG, limit=0)
+    assert run_eval([make_item(1)], FakeAnalyzer(), out_dir=tmp_path / "b")["n"] == 1
+
+
+def test_rows_that_ended_in_an_error_are_retried_on_resume(tmp_path: Path) -> None:
+    items = [make_item(n) for n in range(1, 4)]
+    assert run_eval(items, FakeAnalyzer(fail={2}), out_dir=tmp_path)["errors"] == 1
+    retry = FakeAnalyzer()
+    progress: list[tuple[int, int]] = []
+    metrics = run_eval(
+        items, retry, out_dir=tmp_path, on_progress=lambda d, t, row: progress.append((d, t))
+    )
+    assert retry.calls == ["acme/widget#2"] and progress == [(3, 3)]
+    assert metrics["errors"] == 0 and metrics["accuracy"] == 1.0
+    assert (tmp_path / "reports" / "acme_widget_2.json").is_file()
+    assert run_eval(items, FakeAnalyzer(), out_dir=tmp_path)["n"] == 3
+
+
+def test_dataset_fingerprint_hashes_the_exact_bytes(tmp_path: Path) -> None:
+    path = tmp_path / "d.jsonl"
+    path.write_bytes(b'{"id": 1}\n')
+    first = dataset_fingerprint(path)
+    assert first["dataset"] == str(path.resolve()) and len(first["dataset_sha256"]) == 64
+    path.write_bytes(b'{"id": 1}\r\n')
+    assert dataset_fingerprint(path)["dataset_sha256"] != first["dataset_sha256"]

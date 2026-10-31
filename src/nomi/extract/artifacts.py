@@ -30,6 +30,8 @@ MAX_ITEMS = 100  # cap for lists the contract leaves open (file refs, urls, issu
 MAX_ERRORS = 50
 MAX_TRACES = 50
 MAX_ERROR_LEN = 300
+MAX_FENCE_INFO = 200
+MAX_TRACE_LINE = 2000  # longer lines are cut before the stack-trace patterns see them
 
 Span = tuple[int, int]
 T = TypeVar("T")
@@ -91,7 +93,7 @@ def _line_start(text: str, pos: int) -> int:
 
 # ------------------------------------------------------------ fenced blocks
 
-_FENCE_OPEN = re.compile(r"^[ \t]*(?P<fence>`{3,}|~{3,})[ \t]*(?P<info>.*?)[ \t]*$")
+_FENCE_OPEN = re.compile(r"^[ \t]*(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
 # Fenced blocks in these languages hold program source, where numbers such as
 # 3.14 are literals and `-x` is arithmetic, not versions or command-line flags.
 _SOURCE_LANGUAGES = _words(
@@ -135,14 +137,14 @@ def _find_fences(text: str) -> list[_Fenced]:
         if m is None or (m["fence"][0] == "`" and "`" in m["info"]):
             i += 1
             continue
-        fence = m["fence"]
+        fence, info = m["fence"], m["info"].strip()[:MAX_FENCE_INFO]
         close = re.compile(rf"^[ \t]*{re.escape(fence[0])}{{{len(fence)},}}[ \t]*$")
         j = i + 1
         while j < len(lines) and not (fence[:3] in lines[j] and close.match(lines[j])):
             j += 1
         last = min(j, len(lines) - 1)
         block = CodeBlock(
-            language=_fence_language(m["info"]),
+            language=_fence_language(info),
             content="\n".join(lines[i + 1 : j]),
             line=i + 1,
         )
@@ -187,17 +189,19 @@ _GITHUB_BLOB = re.compile(
 
 
 def _trim_url(url: str) -> str:
-    while url:
-        last = url[-1]
-        if (
-            last in _URL_TRAILING
-            or (last == ")" and url.count(")") > url.count("("))
-            or (last == "]" and url.count("]") > url.count("["))
-        ):
-            url = url[:-1]
+    """Drop trailing punctuation and unbalanced closing brackets (linear: counts kept once)."""
+    closing = {")": url.count(")"), "]": url.count("]")}
+    opening = {")": url.count("("), "]": url.count("[")}
+    end = len(url)
+    while end:
+        last = url[end - 1]
+        if last in _URL_TRAILING or (last in closing and closing[last] > opening[last]):
+            if last in closing:
+                closing[last] -= 1
+            end -= 1
             continue
         break
-    return url
+    return url[:end]
 
 
 def _find_urls(text: str) -> list[tuple[int, int, str]]:
@@ -354,6 +358,8 @@ _BRAND_WORDS = _words("""github gitlab bitbucket javascript typescript coffeescr
     latex mcdonald powerpoint onedrive sharepoint dropbox openssl libreoffice fastapi numpy scipy
     pytorch tensorflow""")
 _TLDS = _words("com org net io dev ai co edu gov uk de fr app info me us ca jp cn ru")
+# Same answer as [A-Z]{2,}[a-z]{2,} for a yes/no search, without backtracking.
+_CAMEL = re.compile(r"[a-z0-9][A-Z]|[A-Z]{2}[a-z]{2}")
 
 
 def _dotted_ok(token: str) -> bool:
@@ -376,7 +382,7 @@ def _code_like(token: str, called: bool) -> bool:
         core = token.strip("_")
         is_emphasis = token.startswith("_") and token.endswith("_") and "_" not in core
         return bool(core) and not is_emphasis and bool(re.search(r"[A-Za-z]", core))
-    return bool(re.search(r"[a-z0-9][A-Z]|[A-Z]{2,}[a-z]{2,}", token))
+    return bool(_CAMEL.search(token))
 
 
 def _prose_symbols(prose: str) -> list[tuple[int, str]]:
@@ -503,11 +509,24 @@ _CVE = re.compile(r"\bCVE-\d{4}-\d{4,7}\b", re.I)
 
 
 def _find_issue_refs(text: str) -> list[int]:
+    """`#123` outside headings; line starts are tracked as matches advance (linear)."""
     refs: list[int] = []
+    seen: set[int] = set()
+    line, scanned, heading = 0, 0, bool(_HEADING.match(text, 0))
     for m in _ISSUE_REF.finditer(text):
-        if not _HEADING.match(text, _line_start(text, m.start())) and int(m[1]) > 0:
-            refs.append(int(m[1]))
-    return _unique(refs, MAX_ITEMS)
+        newline = text.rfind("\n", scanned, m.start())
+        if newline >= 0:
+            line = newline + 1
+            heading = bool(_HEADING.match(text, line))
+        scanned = m.start()
+        number = int(m[1])
+        if heading or number <= 0 or number in seen:
+            continue
+        seen.add(number)
+        refs.append(number)
+        if len(refs) >= MAX_ITEMS:
+            break
+    return refs
 
 
 def _find_cves(text: str) -> list[str]:
@@ -588,6 +607,10 @@ def _header_before(
     return None
 
 
+def _header_message(header: tuple[int, re.Match[str]] | None) -> str | None:
+    return ((header[1]["msg"] or "").strip() or None) if header else None
+
+
 def _frame_runs(
     lines: list[str],
     consumed: set[int],
@@ -619,7 +642,7 @@ def _frame_runs(
 
 _PY_HEADER = "Traceback (most recent call last):"
 _PY_FRAME = re.compile(
-    r'^[ \t]*File "(?P<path>[^"\n]+)", line (?P<line>\d+)(?:, in (?P<func>.+?))?[ \t]*$'
+    r'^[ \t]*File "(?P<path>[^"\n]+)", line (?P<line>\d+)(?:, in (?P<func>.+))?$'
 )
 _PY_ERROR = re.compile(r"^(?P<type>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)(?::[ \t]?(?P<msg>.*))?$")
 _PY_EXC_NAME = re.compile(r"(?:Error|Exception|Interrupt|Exit|Iteration|Warning|Failure)$")
@@ -629,7 +652,8 @@ def _py_frame(line: str) -> StackFrame | None:
     m = _PY_FRAME.match(line) if 'File "' in line else None
     if m is None:
         return None
-    return StackFrame(path=m["path"], line=int(m["line"]), function=m["func"], raw=line.strip())
+    func = m["func"].strip() if m["func"] else None
+    return StackFrame(path=m["path"], line=int(m["line"]), function=func, raw=line.strip())
 
 
 def _py_error(line: str) -> tuple[str, str | None] | None:
@@ -684,11 +708,11 @@ def _python_traces(lines: list[str], consumed: set[int]) -> Iterator[TraceHit]:
 # Rust -----------------------------------------------------------------------
 
 _RUST_PANIC = re.compile(
-    r"thread '(?P<thread>[^'\n]*)' panicked at (?:'(?P<msg>.*)', )?"
+    r"thread '(?P<thread>[^'\n]*)' panicked at (?:'(?P<msg>[^\n]{0,500}?)', )?"
     r"(?P<path>[^\s:'\"]+):(?P<line>\d+):(?P<col>\d+):?[ \t]*(?P<rest>.*)$"
 )
-_RUST_BT_FRAME = re.compile(r"^\s*\d+:\s+(?P<func>\S.*?)\s*$")
-_RUST_BT_AT = re.compile(r"^\s+at\s+(?P<path>.+?):(?P<line>\d+)(?::\d+)?\s*$")
+_RUST_BT_FRAME = re.compile(r"^\s*\d+:\s+(?P<func>\S.*)$")
+_RUST_BT_AT = re.compile(r"^\s+at\s+(?P<path>.+?):(?P<line>\d+)(?::\d+)?$")
 
 
 def _rust_backtrace(
@@ -745,7 +769,8 @@ def _rust_traces(lines: list[str], consumed: set[int]) -> Iterator[TraceHit]:
 
 _GO_GOROUTINE = re.compile(r"^goroutine \d+ \[[^\]\n]*\]:\s*$")
 _GO_LOC = re.compile(r"^\s+(?P<path>\S+?\.go):(?P<line>\d+)(?:\s+\+0x[0-9a-fA-F]+)?\s*$")
-_GO_PANIC = re.compile(r"^\s*(?P<type>panic|fatal error):\s*(?P<msg>.*?)\s*$")
+_GO_PANIC = re.compile(r"^\s*(?P<type>panic|fatal error):\s*(?P<msg>.*)$")
+_GO_IN_GOROUTINE = re.compile(r"(?<!\s)\s+in goroutine \d+$")
 _GO_ARGS = re.compile(r"\((?:[^()]|\([^()]*\))*\)$")
 
 
@@ -760,9 +785,7 @@ def _go_traces(lines: list[str], consumed: set[int]) -> Iterator[TraceHit]:
             func_line, loc = lines[k], _GO_LOC.match(lines[k + 1])
             if not func_line.strip() or func_line[0].isspace() or loc is None:
                 break
-            func = re.sub(r"\s+in goroutine \d+$", "", func_line.strip()).removeprefix(
-                "created by "
-            )
+            func = _GO_IN_GOROUTINE.sub("", func_line.strip()).removeprefix("created by ")
             frames.append(
                 StackFrame(
                     path=loc["path"],
@@ -778,7 +801,7 @@ def _go_traces(lines: list[str], consumed: set[int]) -> Iterator[TraceHit]:
             language="go",
             frames=frames,
             error_type=header[1]["type"] if header else None,
-            error_message=(header[1]["msg"] or None) if header else None,
+            error_message=_header_message(header),
             raw=_raw(lines, start, last + 1),
         )
         yield start, last + 1, trace
@@ -797,7 +820,7 @@ _JAVA_SKIP = re.compile(
 _JAVA_HEADER = re.compile(
     r'^\s*(?:Exception in thread "[^"\n]*"\s+)?'
     r"(?P<type>(?:[A-Za-z_$][\w$]*\.)+[A-Za-z_$][\w$]*|[A-Z]\w*(?:Error|Exception|Throwable))"
-    r"(?::\s*(?P<msg>.*?))?\s*$"
+    r"(?::\s*(?P<msg>.*))?$"
 )
 
 
@@ -829,7 +852,7 @@ def _java_traces(lines: list[str], consumed: set[int]) -> Iterator[TraceHit]:
             language="java",
             frames=frames,
             error_type=header[1]["type"] if header else None,
-            error_message=(header[1]["msg"] or None) if header else None,
+            error_message=_header_message(header),
             raw=_raw(lines, first, end),
         )
         yield first, end, trace
@@ -838,13 +861,13 @@ def _java_traces(lines: list[str], consumed: set[int]) -> Iterator[TraceHit]:
 # JavaScript -----------------------------------------------------------------
 
 _JS_FRAME = re.compile(
-    r"^\s*at\s+(?:(?P<func>[^()\n]+?)\s+\((?P<loc>[^()\n]+?):(?P<line>\d+)(?::\d+)?\)"
-    r"|(?P<bare>[^\s()]+?):(?P<bline>\d+)(?::\d+)?)\s*$"
+    r"^\s*at\s+(?:(?P<func>[^()\n]*[^()\s])\s+\((?P<loc>[^()\n]+?):(?P<line>\d+)(?::\d+)?\)"
+    r"|(?P<bare>[^\s()]+?):(?P<bline>\d+)(?::\d+)?)$"
 )
 _JS_SKIP = re.compile(r"^\s*(?:at\s|\.\.\. \d+ (?:more|lines matching))")
 _JS_HEADER = re.compile(
     r"^\s*(?:Uncaught\s+)?\[?(?P<type>[A-Za-z_$][\w$.]*?(?:Error|Exception))\]?"
-    r"(?::\s*(?P<msg>.*?))?\s*$"
+    r"(?::\s*(?P<msg>.*))?$"
 )
 
 
@@ -869,7 +892,7 @@ def _js_traces(lines: list[str], consumed: set[int]) -> Iterator[TraceHit]:
             language="javascript",
             frames=frames,
             error_type=header[1]["type"] if header else None,
-            error_message=(header[1]["msg"] or None) if header else None,
+            error_message=_header_message(header),
             raw=_raw(lines, first, end),
         )
         yield first, end, trace
@@ -884,12 +907,12 @@ _C_GDB = re.compile(
 _C_ASAN = re.compile(
     r"^\s*#\d+\s+0x[0-9a-fA-F]+\s+in\s+(?P<func>\S+)"
     r"(?:\s+(?P<loc>[^\s()]+?):(?P<line>\d+)(?::\d+)?|\s+\((?P<mod>[^()\s]+?)(?:\+0x[0-9a-fA-F]+)?\))?"
-    r"\s*(?:\(BuildId: [0-9a-fA-F]+\))?\s*$"
+    r"(?:\s*\(BuildId: [0-9a-fA-F]+\))?$"
 )
 _C_SKIP = re.compile(r"^\s*#\d+\s+0x[0-9a-fA-F]+\s")
 _C_HEADER = re.compile(
     r"==\d+==\s*ERROR:\s*\w*Sanitizer:\s*(?P<san>[\w-]+)(?P<rest>.*)$"
-    r"|Program received signal (?P<sig>SIG\w+),\s*(?P<sigmsg>.*?)\.?\s*$"
+    r"|Program received signal (?P<sig>SIG\w+),\s*(?P<sigmsg>.*)$"
     r"|\bruntime error:\s*(?P<ubsan>.*)$"
 )
 
@@ -906,7 +929,7 @@ def _c_error(m: re.Match[str]) -> tuple[str, str | None]:
     if m["san"]:
         return m["san"], f"{m['san']}{m['rest']}".strip()
     if m["sig"]:
-        return m["sig"], m["sigmsg"] or None
+        return m["sig"], m["sigmsg"].strip().removesuffix(".").rstrip() or None
     return "runtime error", m["ubsan"].strip() or None
 
 
@@ -937,10 +960,19 @@ _TRACE_PARSERS: tuple[tuple[str, Callable[[list[str], set[int]], Iterator[TraceH
 )
 
 
+def _trace_line(line: str) -> str:
+    """A line as the trace parsers see it: unquoted, capped and right-stripped once.
+
+    The patterns can then end in a plain `$` instead of a trailing `\\s*$`, which
+    after a lazy or optional group backtracks polynomially on long blank runs.
+    """
+    if line.lstrip().startswith(">"):
+        line = _QUOTE_PREFIX.sub("", line)
+    return line[:MAX_TRACE_LINE].rstrip()
+
+
 def _find_traces(text: str) -> list[StackTrace]:
-    lines = [
-        _QUOTE_PREFIX.sub("", ln) if ln.lstrip().startswith(">") else ln for ln in text.split("\n")
-    ]
+    lines = [_trace_line(ln) for ln in text.split("\n")]
     consumed: set[int] = set()
     found: list[tuple[int, StackTrace]] = []
     for trigger, parser in _TRACE_PARSERS:
