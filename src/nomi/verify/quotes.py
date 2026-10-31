@@ -5,6 +5,9 @@ of its distinctive lines are found verbatim at the analysed commit. A
 fabricated one names a real function but invents its body. The reporter's
 own reproduction script naturally appears nowhere in the repository and is
 left alone: only code that presents itself as the project's own is judged.
+A subclass that overrides a project method (`class Mine(Base)`, `extends`,
+`super()`) or a definition nested in a class/function the project does not
+have is the reporter's own code, however much its names clash.
 """
 
 from __future__ import annotations
@@ -85,6 +88,21 @@ _GENERIC_NAMES = frozenset(
         "call",
     }
 )
+_SUPER_CALL = re.compile(
+    r"\bsuper\s*(?:\(|\.\s*[A-Za-z_$])|^\s*super\b(?!::)|\bparent::\w+\s*\(", re.M
+)
+_CLASS_HEADER = re.compile(
+    r"^[ \t]*(?:[\w@]+[ \t]+)*?(?:class|struct|interface|object|record)[ \t]+"
+    r"([A-Za-z_$][\w$]*)([^\n]{0,300})",
+    re.M,
+)
+_NOT_A_BASE = frozenset(
+    {"extends", "implements", "public", "private", "protected", "virtual", "metaclass", "val"}
+)
+_RECEIVER = re.compile(r"^\s*func\s*\(\s*\w*\s*\*?\s*([A-Za-z_]\w*)")  # Go: func (c *T) Name(
+_RUST_IMPL = re.compile(r"^\s*impl\b(?:\s*<[^>]*>)?\s+(?:[\w:<>, ]+\s+for\s+)?([A-Za-z_]\w*)")
+_MAX_SITES = 20  # definition sites of one name examined per block
+_MAX_SCAN = 2000  # lines scanned upwards for an enclosing scope
 _MIN_LINE = 12
 _MAX_LINES = 15
 _MAX_LOOKUP_CHARS = 200
@@ -137,8 +155,10 @@ def _check_block(block: CodeBlock, ws: Workspace) -> Check | None:
     found = {line: hits for line in lines if (hits := _lookup(ws, line))}
     names = defined_names(block.content, block.language)
     repo_defs = {name: defs for name in names if (defs := _repo_definitions(ws, name))}
-    suspicious = [n for n in repo_defs if _distinctive_name(n)]
-    own_code = _imports_project(block.content, ws)
+    suspicious = [
+        n for n in repo_defs if _distinctive_name(n) and not _in_reporters_scope(block, n, ws)
+    ]
+    own_code = bool(suspicious) and _reporters_own_code(block.content, ws)
     if not found and (not suspicious or own_code):
         return None
     ratio = len(found) / len(lines)
@@ -197,6 +217,79 @@ def _distinctive_name(name: str) -> bool:
         and not (name.startswith("__") and name.endswith("__"))
         and not name.lower().startswith("test")
     )
+
+
+def _reporters_own_code(code: str, ws: Workspace) -> bool:
+    """Code that uses the project (imports it, subclasses it, calls super()) is not a quote."""
+    return (
+        _imports_project(code, ws)
+        or bool(_SUPER_CALL.search(code))
+        or _subclasses_repo_class(code, ws)
+    )
+
+
+def _subclasses_repo_class(code: str, ws: Workspace) -> bool:
+    """`class Mine(RepoBase)` / `class Mine extends RepoBase` where only the base is the project's."""
+    for match in _CLASS_HEADER.finditer(code):
+        name, rest = match.groups()
+        bases = [
+            b for b in dict.fromkeys(re.findall(r"[A-Za-z_$][\w$]*", rest)) if b not in _NOT_A_BASE
+        ]
+        if not bases or _repo_definitions(ws, name):
+            continue
+        for base in bases[:5]:
+            if any(d.kind in ("class", "type") for d in _repo_definitions(ws, base)):
+                return True
+    return False
+
+
+def _in_reporters_scope(block: CodeBlock, name: str, ws: Workspace) -> bool:
+    """True when every definition of `name` in the block sits in a class/function the repo lacks.
+
+    A clashing definition at the top level (or in an indented fragment) still
+    counts as presented as the project's own; so does one inside a class or
+    function that the repository itself defines.
+    """
+    lines = block.content.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    word = re.compile(rf"(?<![\w$]){re.escape(name)}(?![\w$])")
+    sites = [
+        i
+        for i, line in enumerate(lines)
+        if word.search(line) and name in defined_names(line, block.language)
+    ][:_MAX_SITES]
+    scopes = {_enclosing_scope(lines, i, name, block.language) for i in sites}
+    if not scopes or None in scopes:
+        return False
+    return not any(_repo_definitions(ws, scope) for scope in scopes if scope)
+
+
+def _enclosing_scope(lines: list[str], index: int, name: str, language: str | None) -> str | None:
+    """Name of the class/impl/function enclosing `lines[index]` in the block, by indentation."""
+    line = lines[index]
+    owner = _RECEIVER.match(line) or re.search(rf"([A-Za-z_]\w*)::{re.escape(name)}\s*\(", line)
+    if owner:
+        return owner.group(1)
+    current = _indent(line)
+    for row in range(index - 1, max(-1, index - _MAX_SCAN), -1):
+        text = lines[row]
+        if current == 0:
+            break
+        if _TRIVIAL.fullmatch(text.strip()):  # blank lines, lone braces, `end`
+            continue
+        indent = _indent(text)
+        if indent >= current:
+            continue
+        current = indent
+        impl = _RUST_IMPL.match(text)
+        scope = impl.group(1) if impl else next(iter(defined_names(text, language)), None)
+        if scope:
+            return scope
+    return None
+
+
+def _indent(text: str) -> int:
+    expanded = text.expandtabs(4)
+    return len(expanded) - len(expanded.lstrip())
 
 
 def _imports_project(code: str, ws: Workspace) -> bool:

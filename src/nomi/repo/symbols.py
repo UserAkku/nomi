@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import PurePosixPath
 
-from nomi.repo.workspace import GrepHit, Workspace
+from nomi.repo.workspace import GrepHit, Workspace, split_lines
 
 _SEPARATORS = re.compile(r"\.|::|#|->")
 _PART = re.compile(r"^(?:[^\W\d]|\$)[\w$]*[?!]?$")
@@ -401,7 +401,9 @@ def _containers_above(ws: Workspace, path: str, line: int) -> list[str]:
 
 
 def _indent(text: str) -> int:
-    return len(text.expandtabs(4)) - len(text.expandtabs(4).lstrip())
+    lead = text[: len(text) - len(text.lstrip())]
+    # a form feed in the indentation resets the column, as in Python's tokenizer
+    return len(lead.rsplit("\f", 1)[-1].expandtabs(4))
 
 
 def find_mentions(ws: Workspace, name: str, *, max_hits: int = 50) -> list[GrepHit]:
@@ -540,7 +542,7 @@ def _python_logical_starts(text: str) -> tuple[int, ...]:
                 starts.append(tok.start[0])
                 at_start = False
     except (tokenize.TokenError, SyntaxError):
-        rows = text.splitlines()
+        rows = split_lines(text)
         return tuple(
             i for i, row in enumerate(rows, 1) if row.strip() and not row.lstrip().startswith("#")
         )

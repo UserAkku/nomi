@@ -172,3 +172,111 @@ def test_distinctive_lines_filtering():
 def test_unicode_and_huge_block(sample_repo):
     huge = "\n".join(f"résultat_{i} = calcule_quelque_chose({i})" for i in range(5000))
     assert check_quoted_code(block(huge), sample_repo) == []
+
+
+# C1: a reporter's own subclass that overrides a repository method is their code, not a quote.
+RETRYING_SUBCLASS = (
+    "class RetryingClient(Client):\n"
+    "    def fetch(self, url, timeout=30):\n"
+    "        for attempt in range(5):\n"
+    "            try:\n"
+    "                return super().fetch(url, timeout=timeout)\n"
+    "            except ConnectionError:\n"
+    "                time.sleep(2 ** attempt)\n"
+)
+
+JS_CLIENT_FILES = {
+    "src/client.js": (
+        "export class Client {\n"
+        "  constructor(retries = 3) {\n"
+        "    this.retries = retries;\n"
+        "  }\n"
+        "\n"
+        "  async fetchResource(url, options = {}) {\n"
+        "    const response = await fetch(url, options);\n"
+        "    return response.arrayBuffer();\n"
+        "  }\n"
+        "}\n"
+    ),
+}
+
+
+def test_quote_subclass_overriding_repo_method_is_not_accused(sample_repo):
+    assert check_quoted_code(block(RETRYING_SUBCLASS), sample_repo) == []
+
+
+def test_quote_override_in_reporters_own_scope_is_not_accused(sample_repo, make_repo):
+    subclass_without_super = (
+        "class RetryingClient(Client):\n"
+        "    def fetch(self, url, timeout=30):\n"
+        "        response = self.session.get(url, timeout=timeout)\n"
+        "        response.raise_for_status()\n"
+        "        return response.content\n"
+    )
+    nested_in_own_function = (
+        "def reproduce_hang():\n"
+        "    def fetch(url, timeout=30):\n"
+        "        sock = socket.create_connection((url, 80))\n"
+        "        sock.settimeout(None)\n"
+        "        return sock.recv(1 << 20)\n"
+        '    return fetch("example.com")\n'
+    )
+    override_fragment_calling_super = (
+        "    def fetch(self, url, timeout=30):\n"
+        "        self.calls_made += 1\n"
+        '        logger.info("fetching %s", url)\n'
+        "        return super().fetch(url, timeout=timeout)\n"
+    )
+    for code in (subclass_without_super, nested_in_own_function, override_fragment_calling_super):
+        assert check_quoted_code(block(code), sample_repo) == [], code
+    ws = make_repo(JS_CLIENT_FILES, name="js")
+    js_subclass = (
+        "class RetryingClient extends Client {\n"
+        "  async fetchResource(url, { timeoutMs = 30000, ...options } = {}) {\n"
+        "    const controller = new AbortController();\n"
+        "    setTimeout(() => controller.abort(), timeoutMs);\n"
+        "    return fetchWithRetries(url, { ...options, signal: controller.signal });\n"
+        "  }\n"
+        "}\n"
+    )
+    assert check_quoted_code(block(js_subclass, "javascript"), ws) == []
+
+
+def test_quote_fabricated_method_in_repos_own_class_still_fails(sample_repo, make_repo):
+    fabricated_in_repo_class = (
+        "class Client:\n"
+        "    def fetch(self, url, timeout=10):\n"
+        "        buffer = bytearray(256)\n"
+        "        buffer[: len(url)] = url.encode()\n"
+        "        return eval_response_unsafely(buffer)\n"
+    )
+    (check,) = check_quoted_code(block(fabricated_in_repo_class), sample_repo)
+    assert (check.status, check.signal, check.strength) == (
+        CheckStatus.FAIL,
+        Signal.CONTRADICTS,
+        0.6,
+    )
+    # The repository's own subclass, quoted with an invented body, is still judged.
+    ws = make_repo(
+        {
+            "src/shop/base.py": "class BaseClient:\n    timeout = 10\n",
+            "src/shop/client.py": (
+                "from shop.base import BaseClient\n"
+                "\n"
+                "\n"
+                "class SessionClient(BaseClient):\n"
+                "    def download_report(self, report_id):\n"
+                "        return self.session.get(f'/reports/{report_id}').content\n"
+            ),
+        },
+        name="shop",
+    )
+    fabricated_repo_subclass = (
+        "class SessionClient(BaseClient):\n"
+        '    def download_report(self, report_id, fmt="pdf"):\n'
+        "        path = '/tmp/' + report_id\n"
+        "        os.system('curl -o ' + path + ' ' + report_id)\n"
+        "        return open(path).read()\n"
+    )
+    (check,) = check_quoted_code(block(fabricated_repo_subclass), ws)
+    assert check.status is CheckStatus.FAIL and "`SessionClient`" in check.title

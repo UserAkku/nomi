@@ -284,3 +284,43 @@ def test_works_without_git(tmp_path):
     ws = Workspace(tmp_path)
     assert [d.line for d in find_definitions(ws, "Engine.start")] == [2]
     assert enclosing_function(ws, "pkg/core.py", 3) == "start"
+
+
+def test_enclosing_function_counts_only_newlines(make_repo):
+    # str.splitlines() also breaks on \f, \v, \x1c-\x1e, \x85, U+2028/2029; git,
+    # tracebacks and GitHub #L anchors do not, so a form feed must not shift lines.
+    ws = make_repo(
+        {
+            "ff.py": "def alpha():\n    return 1\n\f\ndef beta():\n    return 2\n",
+            "sep.py": "def alpha():\n    s = 'a\u2028b\x85c'\n    return s\ndef beta():\n    return 2\n",
+            "lead.py": "def alpha():\n    return 1\n\fdef gamma():\n    return 3\n",
+            "broken_ff.py": "def f(:\n\f\ndef g(:\n    return (\n",
+        }
+    )
+    assert ws.lines("ff.py")[3] == "def beta():"
+    assert enclosing_function(ws, "ff.py", 2) == "alpha"
+    # a module-level def line itself runs in <module> (decorators, defaults);
+    # traces.py accepts a frame on the def line separately (_defines_here)
+    assert enclosing_function(ws, "ff.py", 4) == "<module>"
+    assert enclosing_function(ws, "ff.py", 5) == "beta"
+    assert enclosing_function(ws, "sep.py", 3) == "alpha"
+    assert enclosing_function(ws, "sep.py", 5) == "beta"
+    # a leading form feed resets the indentation column, as in Python itself
+    assert enclosing_function(ws, "lead.py", 3) == "<module>"
+    assert enclosing_function(ws, "lead.py", 4) == "gamma"
+    # the tokenizer-failure fallback numbers rows the same way
+    assert enclosing_function(ws, "broken_ff.py", 4) == "g"
+
+
+def test_definitions_line_numbers_ignore_form_feeds(make_repo):
+    ws = make_repo(
+        {
+            "m.py": (
+                "class Box:\n\f\n    def open(self):\n        return 1\n\n\n"
+                "class Other:\n    def open(self):\n        return 2\n"
+            )
+        }
+    )
+    (definition,) = find_definitions(ws, "Box.open")  # Other.open is not Box's
+    assert definition.line == 3
+    assert ws.lines("m.py")[definition.line - 1].strip() == "def open(self):"
