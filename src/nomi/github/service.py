@@ -70,7 +70,9 @@ def process_job(
             path = write_report_files(report, markdown, settings.output_dir, job.repo, job.number)
             logger.info("dry run: wrote %s", path)
             return path
-        comment = upsert_report_comment(client, job.repo, job.number, markdown)
+        comment = upsert_report_comment(
+            client, job.repo, job.number, markdown, app_id=settings.app_id
+        )
         logger.info("published report for %s#%d: %s", job.repo, job.number, comment.get("html_url"))
         return comment
 

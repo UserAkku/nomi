@@ -704,14 +704,21 @@ class TestRunReproduction:
     def test_reproduced_inside_an_exception_group(self, sample_repo: Workspace) -> None:
         stderr = (
             "  + Exception Group Traceback (most recent call last):\n"
-            '  |   File "/sandbox/snippet.py", line 3, in <module>\n'
+            '  |   File "/sandbox/snippet.py", line 5, in <module>\n'
             "  | ExceptionGroup: many (1 sub-exception)\n"
             "  +-+---------------- 1 ----------------\n"
+            "    | Traceback (most recent call last):\n"
+            '    |   File "/sandbox/snippet.py", line 3, in <module>\n'
+            '    |   File "/repo/src/widget/parser.py", line 9, in parse_url\n'
             "    | ValueError: empty url\n"
             "    +------------------------------------\n"
         )
         check, _ = reproduce(sample_repo, ran(1, stderr), errors=("ValueError: empty url",))
         assert check.status is CheckStatus.PASS
+        frameless = stderr.replace("    | Traceback (most recent call last):\n", "")
+        frameless = re.sub(r'    \|   File "[^"]*", line \d+, in \w+\n', "", frameless)
+        check, _ = reproduce(sample_repo, ran(1, frameless), errors=("ValueError: empty url",))
+        assert check.status is CheckStatus.WARN and check.signal is Signal.NEUTRAL
 
     def test_third_party_dependency(self, sample_repo: Workspace) -> None:
         stderr = TRACEBACK.replace(
@@ -737,7 +744,8 @@ class TestRunReproduction:
     def test_exception_line_without_traceback_header(self, sample_repo: Workspace) -> None:
         stderr = "[... 9000 bytes of output truncated by nomi ...]\nValueError: empty url\n"
         check, _ = reproduce(sample_repo, ran(1, stderr), errors=("ValueError: x",))
-        assert check.status is CheckStatus.PASS
+        assert check.status is CheckStatus.WARN and check.signal is Signal.NEUTRAL
+        assert "no complete traceback" in check.detail
         check, _ = reproduce(sample_repo, ran(1, "usage: error\n"), errors=("ValueError: x",))
         assert check.status is CheckStatus.WARN
 
@@ -792,10 +800,11 @@ class TestRunReproduction:
         assert check.status is CheckStatus.WARN and check.signal is Signal.NEUTRAL
         assert "mentions ValueError" in check.title
 
-    def test_traceback_with_clean_exit_still_counts(self, sample_repo: Workspace) -> None:
+    def test_traceback_with_clean_exit_is_not_a_reproduction(self, sample_repo: Workspace) -> None:
         stderr = "Exception in thread Thread-1 (run):\n" + TRACEBACK
         check, _ = reproduce(sample_repo, ran(0, stderr), errors=("ValueError: x",))
-        assert check.status is CheckStatus.PASS
+        assert check.status is CheckStatus.WARN and check.signal is Signal.NEUTRAL
+        assert "exited normally" in check.title
         other = stderr.replace("ValueError: empty url", "OSError: disk")
         check, _ = reproduce(sample_repo, ran(0, other), errors=("ValueError: x",))
         assert check.status is CheckStatus.WARN and check.signal is Signal.NEUTRAL
@@ -836,6 +845,72 @@ class TestRunReproduction:
         stdout = "Traceback (most recent call last):\nValueError: totally reproduced\n"
         check, _ = reproduce(sample_repo, ran(1, stdout=stdout), errors=("ValueError: x",))
         assert check.status is CheckStatus.WARN
+
+    def test_printed_error_with_clean_exit_is_not_reproduced(self, sample_repo: Workspace) -> None:
+        for stderr in ("ValueError: empty url\n", TRACEBACK):
+            check, _ = reproduce(sample_repo, ran(0, stderr), errors=("ValueError: empty url",))
+            assert check.status is CheckStatus.WARN and check.signal is Signal.NEUTRAL
+            assert check.strength == 0.2
+        check, _ = reproduce(
+            sample_repo, ran(1, "ValueError: empty url\n"), errors=("ValueError: empty url",)
+        )
+        assert check.status is CheckStatus.WARN and check.signal is Signal.NEUTRAL
+
+    def test_exception_raised_by_the_snippet_itself_is_not_reproduced(
+        self, sample_repo: Workspace
+    ) -> None:
+        stderr = (
+            "Traceback (most recent call last):\n"
+            '  File "/sandbox/snippet.py", line 4, in <module>\n'
+            '    raise ValueError("empty url")\n'
+            "ValueError: empty url\n"
+        )
+        check, _ = reproduce(sample_repo, ran(1, stderr), errors=("ValueError: empty url",))
+        sha = (sample_repo.commit or "")[:7]
+        assert check.status is CheckStatus.WARN and check.signal is Signal.NEUTRAL
+        assert check.title == (
+            f"The report's snippet raised ValueError itself in an isolated sandbox at {sha}; "
+            "not attributable to repository code"
+        )
+        assert "/sandbox/snippet.py" in check.detail
+        # The snippet calling the standard library itself is still the snippet's doing.
+        via_stdlib = stderr.replace(
+            "ValueError: empty url",
+            '  File "/usr/local/lib/python3.12/json/decoder.py", line 355, in raw_decode\n'
+            "json.decoder.JSONDecodeError: Expecting value",
+        )
+        check, _ = reproduce(sample_repo, ran(1, via_stdlib), errors=("JSONDecodeError: x",))
+        assert check.status is CheckStatus.WARN and "itself" in check.title
+        # A snippet that catches the repository's error and raises its own is not a repro either.
+        handled = (
+            TRACEBACK.replace("ValueError: empty url", "KeyError: 'k'")
+            + "\nDuring handling of the above exception, another exception occurred:\n\n"
+            + stderr
+        )
+        check, _ = reproduce(sample_repo, ran(1, handled), errors=("ValueError: empty url",))
+        assert check.status is CheckStatus.WARN and "itself" in check.title
+
+    def test_exception_raised_by_repository_code_is_reproduced(
+        self, sample_repo: Workspace
+    ) -> None:
+        check, _ = reproduce(sample_repo, ran(1, TRACEBACK), errors=("ValueError: empty url",))
+        assert check.status is CheckStatus.PASS and check.signal is Signal.SUPPORTS
+        assert "/repo/src/widget/parser.py" in check.detail
+        # Raised in the standard library on behalf of repository code still counts.
+        via_stdlib = TRACEBACK.replace(
+            "ValueError: empty url",
+            '  File "<frozen importlib._bootstrap>", line 1, in _call\n'
+            '  File "/usr/local/lib/python3.12/json/decoder.py", line 355, in raw_decode\n'
+            "json.decoder.JSONDecodeError: Expecting value",
+        )
+        check, _ = reproduce(sample_repo, ran(1, via_stdlib), errors=("JSONDecodeError: x",))
+        assert check.status is CheckStatus.PASS
+
+    def test_only_the_exception_that_ended_the_run_counts(self, sample_repo: Workspace) -> None:
+        crash = TRACEBACK.replace("ValueError: empty url", "TypeError: nope")
+        check, _ = reproduce(sample_repo, ran(1, TRACEBACK + crash), errors=("ValueError: x",))
+        assert check.status is CheckStatus.WARN
+        assert "got TypeError" in check.title
 
 
 # --------------------------------------------------------------------------

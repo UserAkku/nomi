@@ -12,6 +12,7 @@ import fcntl
 import logging
 import os
 import re
+import stat
 import subprocess
 import time
 from collections import defaultdict
@@ -68,6 +69,19 @@ def _git(args: list[str], cwd: Path, timeout: int = 300) -> str:
     if proc.returncode != 0:
         raise GitError(f"git {' '.join(args)} failed: {proc.stderr.strip()[:500]}")
     return proc.stdout
+
+
+def split_lines(text: str) -> list[str]:
+    r"""Lines numbered the way git, tracebacks and GitHub `#L` anchors count them.
+
+    Only "\n" ends a line: str.splitlines() also breaks on \f, \v, \x1c-\x1e,
+    \x85 and U+2028/2029, which would shift every later line number and make
+    a correct line reference look fabricated. A trailing "\r" (CRLF) is dropped.
+    """
+    lines = text.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    return [line.rstrip("\r") for line in lines]
 
 
 def classify_path(path: str) -> str:
@@ -189,11 +203,11 @@ class Workspace:
         rel = normalize_path(path)
         if rel not in self._file_set:
             return None
-        return _read_text_cached(self.root / rel)
+        return _read_text_cached(self.root, rel)
 
     def lines(self, path: str) -> list[str] | None:
         text = self.read_text(path)
-        return None if text is None else text.splitlines()
+        return None if text is None else split_lines(text)
 
     def excerpt(
         self, path: str, start: int, end: int | None = None, *, context: int = 0
@@ -347,15 +361,35 @@ class Workspace:
         return dict(sorted(counts.items(), key=lambda kv: -kv[1]))
 
 
-@lru_cache(maxsize=2048)
-def _read_text_cached(abs_path: Path) -> str | None:
+def _read_regular_file(root: Path, rel: str, limit: int = MAX_FILE_BYTES) -> bytes | None:
+    """Bytes of the regular file `root/rel`, or None.
+
+    A tracked symlink can point anywhere (~/.ssh/id_rsa, /dev/zero, a FIFO), so
+    symlinks are never followed, the real path must stay inside `root`, only
+    regular files are opened, and at most `limit` bytes are ever read.
+    """
+    path = os.path.join(root, rel)
     try:
-        if abs_path.stat().st_size > MAX_FILE_BYTES:
+        if os.path.commonpath([root, os.path.realpath(path)]) != str(root):
             return None
-        data = abs_path.read_bytes()
-    except OSError:
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            return None
+        # O_NOFOLLOW/O_NONBLOCK: a file swapped for a link or FIFO since lstat cannot block us.
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        with open(os.open(path, flags), "rb") as fh:
+            info = os.fstat(fh.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
+                return None
+            data = fh.read(limit + 1)
+    except (OSError, ValueError):
         return None
-    if b"\0" in data[:8192]:
+    return None if len(data) > limit else data
+
+
+@lru_cache(maxsize=2048)
+def _read_text_cached(root: Path, rel: str) -> str | None:
+    data = _read_regular_file(root, rel)
+    if data is None or b"\0" in data[:8192]:
         return None
     return data.decode("utf-8", errors="replace")
 
@@ -390,7 +424,8 @@ def resolve_commit(dest: Path, *, at: datetime | None = None, ref: str | None = 
         default = "HEAD"
     if at is not None:
         stamp = (at if at.tzinfo else at.replace(tzinfo=UTC)).isoformat()
-        out = _git(["rev-list", "-1", f"--before={stamp}", default], dest).strip()
+        # --first-parent: never a feature-branch commit that was merged only later
+        out = _git(["rev-list", "-1", "--first-parent", f"--before={stamp}", default], dest).strip()
         if out:
             return out
     return _git(["rev-parse", default], dest).strip()

@@ -95,12 +95,23 @@ _SHELL_PROMPT = re.compile(r"^\s*\$ ", re.M)
 _TRACEBACK = re.compile(
     r"Traceback \(most recent call last\)|^\s*File \"[^\"\n]*\", line \d+", re.M
 )
-_TRACEBACK_START = re.compile(r"Traceback \(most recent call last\):|^ {2}File \"|^\s*\+-")
+_TRACEBACK_HEADER = re.compile(r"Traceback \(most recent call last\):")
+_FRAME = re.compile(r" {2}File \"(?P<path>[^\"\n]*)\", line \d+")
+_GROUP_SEPARATOR = re.compile(r"\s*\+-")
 _GROUP_PREFIX = re.compile(r"^(?:\s*\|)+ ?")  # exception-group sub-traceback columns
+_CHAIN_SEPARATORS = frozenset(
+    {
+        "During handling of the above exception, another exception occurred:",
+        "The above exception was the direct cause of the following exception:",
+    }
+)
 _EXCEPTION_LINE = re.compile(r"(?P<name>[A-Za-z_][\w.]*)(?::(?: .*)?)?")
 _MESSAGE_PREFIX = re.compile(r"\s*(?P<name>[A-Za-z_][\w.]*)\s*(?::|$)")
 _CAMEL_CASE = re.compile(r"[A-Z]\w*")
 _MISSING_MODULE = re.compile(r"ModuleNotFoundError: No module named '([^'\n]+)'")
+_REPO_PREFIX = "/repo/"  # where build_command mounts the repository
+# Frames that belong to neither side (the interpreter's own library, <frozen ...>, <string>).
+_LIBRARY_PREFIXES = ("<", "/usr/local/lib/python", "/usr/lib/python")
 
 
 class SandboxResult(BaseModel):
@@ -584,7 +595,7 @@ def _judge(
             evidence=evidence,
         )
     raised = _raised_errors(result.stderr)
-    missing = _missing_module(raised[0][1]) if raised else None
+    missing = _missing_module(raised[0].line) if raised else None
     if missing is not None and missing.split(".")[0] not in packages:
         return Check(
             id="repro.dependency",
@@ -596,20 +607,39 @@ def _judge(
             ),
             evidence=evidence,
         )
-    hit = next(((name, line) for name, line in raised if name in expected), None)
-    if hit is not None:
+    if result.exit_code != 0:
+        # Only an uncaught exception raised inside repository code reproduces the
+        # report: a snippet can print "ValueError: ..." or raise it all by itself.
+        final = [r for r in raised if r.final] or raised[:1]
+        hit = next((r for r in final if r.final and r.from_repo and r.name in expected), None)
+        if hit is not None:
+            return _run_check(
+                CheckStatus.PASS,
+                f"Reproduced: the report's snippet raises {hit.name} {where}",
+                signal=Signal.SUPPORTS,
+                strength=0.9,
+                detail=(
+                    f"Exit code {result.exit_code} {ran_for}; repository code "
+                    f"(`{_clip_line(hit.frame or '')}`) raised `{_clip_line(hit.line)}`."
+                ),
+                evidence=evidence,
+            )
+        own = next((r for r in final if r.name in expected), None)
+        if own is not None:
+            return _not_attributable(own, result, where, ran_for, evidence)
+    reported = " or ".join(expected[:3])
+    mentioned = [name for name in expected if _mentions(result, name)]
+    if result.exit_code == 0 and mentioned:
         return _run_check(
-            CheckStatus.PASS,
-            f"Reproduced: the report's snippet raises {hit[0]} {where}",
-            signal=Signal.SUPPORTS,
-            strength=0.9,
-            detail=f"Exit code {result.exit_code} {ran_for}; it raised `{_clip_line(hit[1])}`.",
+            CheckStatus.WARN,
+            f"The report's snippet exited normally, but its output mentions {mentioned[0]}",
+            strength=0.2,
+            detail=f"Exit code 0 {ran_for}; the snippet may catch or only log the error.",
             evidence=evidence,
         )
-    reported = " or ".join(expected[:3])
     if result.exit_code != 0 or raised:
-        got = raised[0][0] if raised else _describe_exit(result.exit_code)
-        last = raised[0][1] if raised else (_last_line(result.stderr) or got)
+        got = raised[0].name if raised else _describe_exit(result.exit_code)
+        last = raised[0].line if raised else (_last_line(result.stderr) or got)
         title = (
             f"Reproduction failed differently (got {got}, report says {reported})"
             if expected
@@ -623,15 +653,6 @@ def _judge(
             evidence=evidence,
         )
     if expected:
-        mentioned = [name for name in expected if _mentions(result, name)]
-        if mentioned:
-            return _run_check(
-                CheckStatus.WARN,
-                f"The report's snippet exited normally, but its output mentions {mentioned[0]}",
-                strength=0.2,
-                detail=f"Exit code 0 {ran_for}; the snippet may catch or only log the error.",
-                evidence=evidence,
-            )
         return _run_check(
             CheckStatus.FAIL,
             f"Did not reproduce: ran without the reported {reported} {where}",
@@ -652,31 +673,95 @@ def _judge(
     )
 
 
-def _raised_errors(stderr: str) -> list[tuple[str, str]]:
-    """(short exception name, exception line) of each traceback in stderr, last first.
+def _not_attributable(
+    own: _Raised, result: SandboxResult, where: str, ran_for: str, evidence: list[Evidence]
+) -> Check:
+    """The reported exception happened, but nothing shows repository code raised it."""
+    if own.frame is not None and not own.from_repo:
+        title = (
+            f"The report's snippet raised {own.name} itself {where}; "
+            "not attributable to repository code"
+        )
+        why = f"its innermost frame is `{_clip_line(own.frame)}`, outside {_REPO_PREFIX}"
+    else:
+        title = f"Reproduction not confirmed: the report's snippet stopped with {own.name} {where}"
+        why = (
+            "it is not the uncaught exception that ended the run"
+            if own.frame is not None
+            else "no complete traceback shows that repository code raised it"
+        )
+    return _run_check(
+        CheckStatus.WARN,
+        title,
+        strength=0.2,
+        detail=f"Exit code {result.exit_code} {ran_for}; `{_clip_line(own.line)}`: {why}.",
+        evidence=evidence,
+    )
 
-    When no traceback header survives (e.g. truncated output), a final line
-    shaped like `SomeError: message` still counts.
+
+@dataclass(frozen=True)
+class _Raised:
+    """One exception printed to stderr by the run."""
+
+    name: str  # short class name
+    line: str  # the exception line as printed
+    frame: str | None = None  # innermost frame outside Python's own library
+    final: bool = False  # part of the exception chain that ended the run
+
+    @property
+    def from_repo(self) -> bool:
+        return self.frame is not None and self.frame.startswith(_REPO_PREFIX)
+
+
+def _raised_errors(stderr: str) -> list[_Raised]:
+    """Each exception printed in stderr, last first.
+
+    Only an exception under a real `Traceback (most recent call last):` header
+    gets its innermost frame and can be `final`: part of the last printed chain
+    (linked by "During handling of ..." / "... direct cause ...", including
+    exception-group members), i.e. what ended the run. When no traceback
+    survives (e.g. truncated output), a final `SomeError: message` line is
+    still reported, but without a frame.
     """
-    found: list[tuple[str, str]] = []
-    in_traceback = False
+    found: list[tuple[str, str, str | None, int]] = []
+    chain = 0
+    in_traceback = header = False
+    frame: str | None = None
+    previous = ""
     for raw in stderr.splitlines():
         line = _GROUP_PREFIX.sub("", raw)
-        if _TRACEBACK_START.search(line):
+        frame_match = _FRAME.match(line)
+        if _TRACEBACK_HEADER.search(line):
+            if line == raw and previous not in _CHAIN_SEPARATORS:
+                chain += 1  # a new top-level traceback, not a link of the previous chain
+            in_traceback, header, frame = True, True, None
+        elif frame_match:
             in_traceback = True
-            continue
-        if not in_traceback or not line.strip() or line[0] in " \t":
-            continue
-        in_traceback = False
-        match = _EXCEPTION_LINE.fullmatch(line.rstrip())
-        if match:
-            found.append((_short_name(match.group("name")), line.strip()))
-    if not found:
+            if not frame_match.group("path").startswith(_LIBRARY_PREFIXES):
+                frame = frame_match.group("path")
+        elif _GROUP_SEPARATOR.match(line):
+            in_traceback, frame = True, None
+        elif in_traceback and line.strip() and line[0] not in " \t":
+            match = _EXCEPTION_LINE.fullmatch(line.rstrip())
+            if match:
+                name = _short_name(match.group("name"))
+                found.append(
+                    (name, line.strip(), frame if header else None, chain if header else 0)
+                )
+            in_traceback = header = False
+            frame = None
+        if line.strip():
+            previous = line.strip()
+    raised = [
+        _Raised(name, text, innermost, final=0 < number == chain)
+        for name, text, innermost, number in found
+    ]
+    if not raised:
         last = _last_line(stderr)
         match = _EXCEPTION_LINE.fullmatch(last)
         if match and _is_exception_name(_short_name(match.group("name"))):
-            found.append((_short_name(match.group("name")), last))
-    return found[::-1]
+            raised.append(_Raised(_short_name(match.group("name")), last))
+    return raised[::-1]
 
 
 def _missing_module(exception_line: str) -> str | None:

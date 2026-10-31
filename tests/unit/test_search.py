@@ -234,3 +234,56 @@ def test_build_is_fast_for_2k_files(tmp_path: Path):
     assert index.files_indexed == 2000
     (top, _), *_ = index.search("handler_1234_7 timeout")
     assert top.path == "pkg14/mod1234.py"
+
+
+# ------------------------------------------------------- review hardening
+
+
+def test_chunk_line_numbers_count_only_newlines(make_repo):
+    text = "alpha = 1\n\f\nsep = 'x\u2028y\x85z'\nbeta_marker = 2\nlast = 3\n"
+    ws = make_repo({"m.py": text})
+    index = CodeIndex.build(ws, chunk_lines=2, overlap=0)
+    assert [(c.start, c.end) for c in index.chunks] == [(1, 2), (3, 4), (5, 5)]
+    lines = ws.lines("m.py")
+    for chunk in index.chunks:
+        assert chunk.text.split("\n") == lines[chunk.start - 1 : chunk.end]
+    (hit, _score), *_ = index.search("beta_marker")
+    assert lines[hit.start - 1 : hit.end][-1] == "beta_marker = 2"
+    assert (hit.start, hit.end) == (3, 4)
+
+
+def test_symlinks_and_fifos_are_never_indexed(make_repo, tmp_path):
+    import os
+    import signal
+
+    from tests.conftest import git
+
+    secret = tmp_path / "secret.txt"
+    secret.write_text("leaked_private_key = 1\n")
+    ws = make_repo({"src/real.py": "zebrafish_real = 1\n", "src/pipe.py": "zebrafish_pipe = 1\n"})
+    os.symlink("../../secret.txt", ws.root / "src" / "keys.py")
+    os.symlink("/dev/zero", ws.root / "src" / "zero.py")
+    git(ws.root, "add", "-A")
+    git(ws.root, "commit", "-q", "-m", "links")
+    (ws.root / "src" / "pipe.py").unlink()
+    os.mkfifo(ws.root / "src" / "pipe.py")
+    fresh = Workspace(ws.root)
+
+    class Blocked(Exception):  # not an OSError, so a reader cannot swallow it
+        pass
+
+    def _expired(signum, frame):
+        raise Blocked("indexing blocked on a special file")
+
+    previous = signal.signal(signal.SIGALRM, _expired)
+    signal.alarm(5)
+    started = time.perf_counter()
+    try:
+        index = CodeIndex.build(fresh)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+    assert time.perf_counter() - started < 1
+    assert {c.path for c in index.chunks} == {"src/real.py"}
+    assert not any("leaked_private_key" in c.text for c in index.chunks)
+    assert index.search("leaked_private_key") == []

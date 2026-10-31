@@ -208,6 +208,7 @@ def test_duplicate_delivery_runs_once(client: TestClient, recorder: Recorder) ->
     second = deliver(client, "issues", issue_payload(), delivery="same")
     assert second.status_code == 200
     assert second.json() == {"status": "duplicate"}
+    drain(client)  # otherwise "other" may be coalesced into the still-waiting job
     assert deliver(client, "issues", issue_payload(), delivery="other").status_code == 202
     drain(client)
     assert [j.delivery_id for j in recorder.jobs] == ["same", "other"]
@@ -216,7 +217,7 @@ def test_duplicate_delivery_runs_once(client: TestClient, recorder: Recorder) ->
 def test_missing_delivery_header_is_still_processed(client: TestClient, recorder: Recorder) -> None:
     for _ in range(2):
         assert deliver(client, "issues", issue_payload(), delivery=None).status_code == 202
-    drain(client)
+        drain(client)
     assert len(recorder.jobs) == 2
     assert all(j.delivery_id.startswith("local-") for j in recorder.jobs)
 
@@ -348,6 +349,7 @@ def test_missing_or_bad_installation_id_becomes_none(
     client: TestClient, recorder: Recorder
 ) -> None:
     deliver(client, "issues", issue_payload(installation={"id": "555"}), delivery="a")
+    drain(client)
     deliver(client, "issues", issue_payload(installation=None), delivery="b")
     drain(client)
     assert [j.installation_id for j in recorder.jobs] == [None, None]
@@ -358,6 +360,7 @@ def test_worker_survives_failing_jobs(caplog: pytest.LogCaptureFixture) -> None:
     with TestClient(create_app(make_settings(), handler=recorder)) as c:
         with caplog.at_level(logging.ERROR, logger="nomi.github.app"):
             deliver(c, "issues", issue_payload(), delivery="first")
+            drain(c)
             deliver(c, "issues", issue_payload(), delivery="second")
             drain(c)
     assert [j.delivery_id for j in recorder.jobs] == ["first", "second"]
@@ -367,7 +370,7 @@ def test_worker_survives_failing_jobs(caplog: pytest.LogCaptureFixture) -> None:
 
 def test_jobs_run_serially_in_order(client: TestClient, recorder: Recorder) -> None:
     for i in range(20):
-        deliver(client, "issues", issue_payload(), delivery=f"d{i}")
+        deliver(client, "issues", issue_payload(issue={"number": 100 + i}), delivery=f"d{i}")
     drain(client)
     assert [j.delivery_id for j in recorder.jobs] == [f"d{i}" for i in range(20)]
     assert recorder.thread_names == {"nomi-triage-worker"}
@@ -410,3 +413,63 @@ def test_delivery_log_is_bounded() -> None:
     assert not log.seen_before("c")  # evicts "b"
     assert log.seen_before("a")
     assert not log.seen_before("b")
+
+
+class GatedRecorder(Recorder):
+    """Blocks inside the first job until released, so tests control the queue."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.running = threading.Event()
+        self.release = threading.Event()
+
+    def __call__(self, job: TriageJob) -> None:
+        super().__call__(job)
+        self.running.set()
+        assert self.release.wait(10), "test never released the worker"
+
+
+def test_events_for_the_same_target_are_coalesced() -> None:
+    recorder = GatedRecorder()
+    with TestClient(create_app(make_settings(), handler=recorder)) as c:
+        try:
+            assert deliver(c, "issues", issue_payload(), delivery="d1").json()["status"] == "queued"
+            assert recorder.running.wait(10)  # d1 is being processed
+            pushes = [
+                deliver(c, "pull_request", pr_payload("synchronize"), delivery=f"p{i}")
+                for i in range(50)
+            ]
+            assert [r.status_code for r in pushes] == [202] * 50
+            assert pushes[0].json() == {"status": "queued"}
+            assert {r.json()["status"] for r in pushes[1:]} == {"coalesced"}
+            # A push for the issue being processed right now queues exactly one follow-up.
+            assert deliver(c, "issues", issue_payload(), delivery="d2").json()["status"] == "queued"
+            follow_up = deliver(c, "issues", issue_payload(), delivery="d3")
+            assert follow_up.json() == {"status": "coalesced"}
+        finally:
+            recorder.release.set()
+        drain(c)
+    assert [j.delivery_id for j in recorder.jobs] == ["d1", "p0", "d2"]
+
+
+def test_full_queue_is_refused_with_503(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(app_module, "MAX_QUEUED_JOBS", 2)
+    recorder = GatedRecorder()
+    with TestClient(create_app(make_settings(), handler=recorder)) as c:
+        try:
+            deliver(c, "issues", issue_payload(issue={"number": 1}), delivery="a")
+            assert recorder.running.wait(10)
+            for number, delivery in ((2, "b"), (3, "c")):
+                payload = issue_payload(issue={"number": number})
+                assert deliver(c, "issues", payload, delivery=delivery).status_code == 202
+            refused = deliver(c, "issues", issue_payload(issue={"number": 4}), delivery="d")
+            assert refused.status_code == 503
+            assert "queue is full" in refused.json()["detail"]
+        finally:
+            recorder.release.set()
+        drain(c)
+        # GitHub's "redeliver" of the refused event is not mistaken for a duplicate.
+        again = deliver(c, "issues", issue_payload(issue={"number": 4}), delivery="d")
+        assert again.status_code == 202 and again.json() == {"status": "queued"}
+        drain(c)
+    assert [j.number for j in recorder.jobs] == [1, 2, 3, 4]

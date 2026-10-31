@@ -35,6 +35,7 @@ from nomi.models import (
 
 API = "https://api.github.com"
 COMMENTS = "/repos/o/r/issues/7/comments"
+BOT = "nomi-triage[bot]"
 
 
 @pytest.fixture
@@ -114,7 +115,7 @@ def test_upsert_creates_when_no_report_exists(api: respx.MockRouter, client: Git
 
 
 def test_upsert_updates_existing_report(api: respx.MockRouter, client: GitHubClient) -> None:
-    old = {"id": 5, "body": f"{REPORT_MARKER}\nold", "user": {"type": "Bot"}}
+    old = {"id": 5, "body": f"{REPORT_MARKER}\nold", "user": {"type": "Bot", "login": BOT}}
     api.get(COMMENTS).mock(return_value=httpx.Response(200, json=[{"id": 1, "body": "hi"}, old]))
     create = api.post(COMMENTS).mock(return_value=httpx.Response(201, json={}))
     update = api.patch("/repos/o/r/issues/comments/5").mock(
@@ -129,7 +130,7 @@ def test_upsert_updates_existing_report(api: respx.MockRouter, client: GitHubCli
 
 
 def test_upsert_skips_identical_update(api: respx.MockRouter, client: GitHubClient) -> None:
-    same = {"id": 5, "body": f"{REPORT_MARKER}\nsame"}
+    same = {"id": 5, "body": f"{REPORT_MARKER}\nsame", "user": {"type": "Bot", "login": BOT}}
     api.get(COMMENTS).mock(return_value=httpx.Response(200, json=[same]))
     update = api.patch("/repos/o/r/issues/comments/5").mock(return_value=httpx.Response(200))
 
@@ -139,11 +140,71 @@ def test_upsert_skips_identical_update(api: respx.MockRouter, client: GitHubClie
 
 def test_find_prefers_bot_comment_then_oldest() -> None:
     human = {"id": 1, "body": f"quoting {REPORT_MARKER}", "user": {"type": "User"}}
-    bot_old = {"id": 2, "body": REPORT_MARKER, "user": {"type": "Bot"}}
-    bot_new = {"id": 3, "body": REPORT_MARKER, "user": {"type": "Bot"}}
+    bot_old = {"id": 2, "body": REPORT_MARKER, "user": {"type": "Bot", "login": BOT}}
+    bot_new = {"id": 3, "body": REPORT_MARKER, "user": {"type": "Bot", "login": BOT}}
     assert find_report_comment([human, bot_old, bot_new]) is bot_old
-    assert find_report_comment([human]) is human
+    assert find_report_comment([human]) is None
     assert find_report_comment([]) is None
+
+
+def comment(
+    comment_id: int, *, login: str, kind: str = "Bot", app: int | None = None, body: str = ""
+) -> dict[str, Any]:
+    return {
+        "id": comment_id,
+        "body": body or f"{REPORT_MARKER}\n### Nomi evidence report",
+        "user": {"login": login, "type": kind},
+        "performed_via_github_app": {"id": app, "slug": "x"} if app is not None else None,
+    }
+
+
+def test_upsert_never_edits_a_human_comment_with_the_marker(
+    api: respx.MockRouter, client: GitHubClient
+) -> None:
+    human = comment(1, login="mallory", kind="User")
+    api.get(COMMENTS).mock(return_value=httpx.Response(200, json=[human]))
+    create = api.post(COMMENTS).mock(return_value=httpx.Response(201, json={"id": 2}))
+    update = api.patch("/repos/o/r/issues/comments/1").mock(return_value=httpx.Response(200))
+
+    assert upsert_report_comment(client, "o/r", 7, "## Report") == {"id": 2}
+    assert upsert_report_comment(client, "o/r", 7, "## Report", app_id="123") == {"id": 2}
+    assert create.call_count == 2
+    assert update.call_count == 0
+
+
+def test_find_report_comment_only_matches_nomi_itself() -> None:
+    human = comment(1, login="mallory", kind="User", app=123)
+    other_app = comment(2, login="other-bot[bot]", app=999)
+    ours = comment(3, login=BOT, app=123)
+    assert find_report_comment([human, other_app, ours], app_id="123") is ours
+    assert find_report_comment([human, other_app], app_id="123") is None
+    assert find_report_comment([human, other_app, ours], bot_login="NOMI-triage[bot]") is ours
+    assert find_report_comment([other_app], bot_login=BOT) is None
+    assert find_report_comment([comment(4, login=BOT)], bot_login=BOT, app_id="123") is not None
+    # With no identity configured: a [bot] account whose comment starts with the marker.
+    assert find_report_comment([human, other_app]) is other_app
+    quoted = comment(5, login=BOT, body=f"see the old report:\n{REPORT_MARKER}")
+    assert find_report_comment([quoted]) is None
+    assert find_report_comment([comment(6, login="sneaky", kind="Bot")]) is None
+
+
+def test_process_job_updates_only_the_configured_apps_comment(
+    api: respx.MockRouter, tmp_path: Path
+) -> None:
+    api.get("/repos/o/r/issues/7").mock(return_value=httpx.Response(200, json=issue_json()))
+    other_app = comment(2, login="other-bot[bot]", app=999)
+    ours = comment(3, login=BOT, app=123)
+    api.get(COMMENTS).mock(return_value=httpx.Response(200, json=[other_app, ours]))
+    stranger = api.patch("/repos/o/r/issues/comments/2").mock(return_value=httpx.Response(200))
+    update = api.patch("/repos/o/r/issues/comments/3").mock(
+        return_value=httpx.Response(200, json={"id": 3})
+    )
+    settings = make_settings(tmp_path, dry_run=False, app_id="123")
+
+    result = process_job(make_job(), settings, analyze_fn=make_report, render_fn=render)
+
+    assert result == {"id": 3}
+    assert update.call_count == 1 and stranger.call_count == 0
 
 
 def test_find_ignores_malformed_comments() -> None:

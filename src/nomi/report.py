@@ -4,6 +4,7 @@ The Markdown is posted by a bot into public threads, and much of it is
 attacker-controlled: titles, claims and quotes come straight from the issue,
 and check titles echo symbols the reporter typed. Everything is therefore
 escaped on the way out so a report cannot ping people, inject links or HTML,
+autolink URLs or cross-reference other issues (which would backlink them),
 spoof the hidden marker, break out of a table or <details> block, or exceed
 GitHub's 65,536-character comment limit (rows are dropped progressively and
 a note says so instead).
@@ -82,6 +83,10 @@ _ORDERED_START = re.compile(r"(\d{1,9})([.)])")
 _REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 _SHA = re.compile(r"[0-9a-fA-F]{7,64}")
 _HTTP_URL = re.compile(r"https?://\S+")
+# GitHub autolinks bare URLs and www. hosts, and turns #12, GH-12 and owner/repo#12
+# into cross-references that notify the other thread; a zero-width space defuses each.
+_AUTOLINK = re.compile(r"(?i)(?<=https)(?=://)|(?<=http)(?=://)|(?<=www)(?=\.)")
+_ISSUE_REF = re.compile(r"(?i)(?<=#)(?=\d)|(?<=\bGH-)(?=\d)")
 
 T = TypeVar("T")
 
@@ -126,11 +131,16 @@ def _neutralize_mentions(text: str) -> str:
     return _MENTION.sub("@​", text)
 
 
+def _neutralize_references(text: str) -> str:
+    """Break autolinks and issue references with a zero-width space."""
+    return _ISSUE_REF.sub("​", _AUTOLINK.sub("​", text))
+
+
 def _plain(text: str) -> str:
     """Escape text so it renders literally: no HTML, links, table breaks or pings."""
     for char in ("\\", "[", "]", "|", "`"):
         text = text.replace(char, "\\" + char)
-    return _neutralize_mentions(html.escape(text, quote=False))
+    return _neutralize_references(_neutralize_mentions(html.escape(text, quote=False)))
 
 
 def _code_ok(content: str) -> bool:

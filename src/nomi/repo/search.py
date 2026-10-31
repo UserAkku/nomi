@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import PurePosixPath
 
-from nomi.repo.workspace import Workspace, classify_path, normalize_path
+from nomi.repo.workspace import Workspace, classify_path, normalize_path, split_lines
 
 K1 = 1.5
 B = 0.75
@@ -144,14 +144,14 @@ def _read_indexable(ws: Workspace, path: str, max_file_bytes: int) -> str | None
             return None
     except OSError:
         return None
-    text = ws.read_text(path)
+    text = ws.read_text(path)  # never follows links, never opens FIFOs or devices
     if text is None or _looks_generated(text):
         return None
     return text
 
 
 def _chunk_file(path: str, text: str, size: int, step: int) -> Iterator[Chunk]:
-    lines = text.splitlines()
+    lines = split_lines(text)  # numbered like git and Workspace.lines (only "\n" ends a line)
     kind = classify_path(path)
     for lo in range(0, len(lines), step):
         hi = min(lo + size, len(lines))

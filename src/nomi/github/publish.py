@@ -3,9 +3,9 @@
 Re-running Nomi (a new push to a PR, a ``/nomi`` command) must never add
 another comment: maintainers would rightly uninstall a bot that spams threads.
 Every report carries the hidden :data:`~nomi.models.REPORT_MARKER`, and the
-next run edits the comment that holds it. When several comments carry the
-marker (for example a human pasted a report), a bot-authored one is preferred
-so Nomi edits its own comment rather than someone else's.
+next run edits the comment that holds it, but only a comment Nomi itself
+wrote: anyone can paste the marker into their own comment, and Nomi must never
+rewrite a stranger's words. Without a recognisable Nomi comment it posts a new one.
 """
 
 from __future__ import annotations
@@ -21,11 +21,22 @@ _TRUNCATION_NOTICE = "\n\n_Report truncated to fit GitHub's comment size limit._
 
 
 def upsert_report_comment(
-    client: GitHubClient, repo: str, number: int, markdown: str
+    client: GitHubClient,
+    repo: str,
+    number: int,
+    markdown: str,
+    *,
+    bot_login: str | None = None,
+    app_id: str | None = None,
 ) -> dict[str, Any]:
-    """Create Nomi's report comment, or update the existing one; returns the comment."""
+    """Create Nomi's report comment, or update its existing one; returns the comment.
+
+    ``app_id`` (the GitHub App's id) and ``bot_login`` identify Nomi's own
+    comments; see :func:`find_report_comment`.
+    """
     body = prepare_body(markdown)
-    existing = find_report_comment(client.list_comments(repo, number))
+    comments = client.list_comments(repo, number)
+    existing = find_report_comment(comments, bot_login=bot_login, app_id=app_id)
     if existing is None:
         return client.create_comment(repo, number, body)
     if existing.get("body") == body:
@@ -45,13 +56,22 @@ def prepare_body(markdown: str) -> str:
     return prefix + body[:room] + _TRUNCATION_NOTICE
 
 
-def find_report_comment(comments: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Return the comment holding the marker, preferring bot-authored, then oldest."""
-    candidates = [c for c in comments if _is_report(c)]
-    if not candidates:
-        return None
-    by_bot = [c for c in candidates if _is_bot(c)]
-    return (by_bot or candidates)[0]
+def find_report_comment(
+    comments: list[dict[str, Any]],
+    *,
+    bot_login: str | None = None,
+    app_id: str | None = None,
+) -> dict[str, Any] | None:
+    """The oldest report comment written by Nomi itself, or None; never a human's.
+
+    A Nomi comment is authored by a Bot account and, when known, was posted via
+    the GitHub App ``app_id`` or by the account ``bot_login``. With neither
+    known, only a ``...[bot]`` account's comment that starts with the marker counts.
+    """
+    for comment in comments:
+        if _is_report(comment) and _is_own(comment, bot_login, app_id):
+            return comment
+    return None
 
 
 def _is_report(comment: dict[str, Any]) -> bool:
@@ -65,6 +85,18 @@ def _is_report(comment: dict[str, Any]) -> bool:
     )
 
 
-def _is_bot(comment: dict[str, Any]) -> bool:
+def _is_own(comment: dict[str, Any], bot_login: str | None, app_id: str | None) -> bool:
     user = comment.get("user")
-    return isinstance(user, dict) and user.get("type") == "Bot"
+    if not isinstance(user, dict) or user.get("type") != "Bot":
+        return False
+    login = user.get("login")
+    login = login.casefold() if isinstance(login, str) else ""
+    if app_id or bot_login:
+        app = comment.get("performed_via_github_app")
+        app_matches = (
+            bool(app_id) and isinstance(app, dict) and str(app.get("id")) == str(app_id).strip()
+        )
+        login_matches = bool(bot_login) and login == str(bot_login).casefold()
+        return app_matches or login_matches
+    first_line = str(comment.get("body")).partition("\n")[0]
+    return login.endswith("[bot]") and REPORT_MARKER in first_line
