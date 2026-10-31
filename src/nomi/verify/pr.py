@@ -846,6 +846,14 @@ def _claims_about(claims: Sequence[Claim], terms: Iterable[str]) -> list[str]:
     ]
 
 
+def _claims_naming(claims: Sequence[Claim], terms: Iterable[str]) -> list[str]:
+    """Ids of claims of any type whose text, quote or entities name one of `terms`."""
+    rx = _term_pattern(terms)
+    if rx is None:
+        return []
+    return [c.id for c in claims if rx.search("\n".join([c.text, c.quote, *c.entities]))]
+
+
 _TEST_TERMS = ("test", "tests", "testing", "test case", "test cases", "unit test", "unit tests")
 _DOC_TERMS = ("doc", "docs", "documentation", "readme", "changelog", "release notes")
 _FIX_TERMS = (
@@ -1068,19 +1076,37 @@ def _check_docs_claim(ctx: _Context) -> list[Check]:
                 evidence=[_file_list_evidence(ctx.files, "files changed by this PR")],
             )
         ]
+    real = [fd for fd in docs if not _whitespace_only(fd)]
+    if not real:
+        return [
+            _check(
+                "pr.docs_claim",
+                "Documentation claim backed only by whitespace changes.",
+                CheckStatus.WARN,
+                Signal.CONTRADICTS,
+                0.45,
+                detail=f'The description says "{phrase}", but every changed doc file only '
+                "changes whitespace: " + _quote([fd.path for fd in docs]),
+                claim_ids=claim_ids,
+                evidence=[
+                    _diff_evidence(fd, _changes_excerpt(fd), "whitespace-only change", ctx.pr_url)
+                    for fd in docs
+                ],
+            )
+        ]
     return [
         _check(
             "pr.docs_claim",
-            f"The claimed documentation changes are in the diff ({len(docs)} doc file(s)).",
+            f"The claimed documentation changes are in the diff ({len(real)} doc file(s)).",
             CheckStatus.PASS,
             Signal.SUPPORTS,
             0.15,
             detail=f'The description says "{phrase}"; changed doc files: '
-            + _quote([fd.path for fd in docs]),
+            + _quote([fd.path for fd in real]),
             claim_ids=claim_ids,
             evidence=[
                 _diff_evidence(fd, _changes_excerpt(fd), "documentation changed", ctx.pr_url)
-                for fd in docs
+                for fd in real
             ],
         )
     ]
@@ -1253,11 +1279,16 @@ def _files_missing_check(ctx: _Context, missing: list[str]) -> Check:
 
 def _files_present_check(ctx: _Context, ws: Workspace, present: list[tuple[str, str]]) -> Check:
     names = [m for m, _ in present]
+    verb = "is" if len(names) == 1 else "are"
     return _check(
         "pr.mentioned_files",
-        f"Files named in the description exist but are not changed by this PR: {_quote(names)}.",
-        CheckStatus.INFO,
-        claim_ids=_claims_about(ctx.claims, _path_terms(names)),
+        f"{_quote(names)} {verb} named as changed but {verb} not touched by this PR.",
+        CheckStatus.WARN,
+        Signal.CONTRADICTS,
+        0.25,
+        detail="These files exist in the repository but the diff does not change them; "
+        "check that the description matches the change.",
+        claim_ids=_claims_naming(ctx.claims, _path_terms(names)),
         evidence=[
             ev
             for m, path in present
@@ -1411,11 +1442,11 @@ def _symbols_untouched_check(
         "pr.mentioned_symbols",
         f"{_quote(names)} mentioned but not touched by this PR.",
         CheckStatus.WARN,
-        Signal.NEUTRAL,
+        Signal.CONTRADICTS,
         0.2,
         detail="These identifiers exist in the repository but no line of the diff contains "
         "them; check that the description matches the change.",
-        claim_ids=_claims_about(ctx.claims, _symbol_terms(s for s, _ in untouched)),
+        claim_ids=_claims_naming(ctx.claims, _symbol_terms(s for s, _ in untouched)),
         evidence=[
             ev
             for s, (path, line) in untouched

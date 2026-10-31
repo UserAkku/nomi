@@ -321,6 +321,24 @@ def test_docs_claim_with_doc_files_passes(doc):
     assert check.evidence[0].path == doc.path
 
 
+def test_docs_claim_backed_only_by_whitespace_warns():
+    claims = [change_claim("C1", "Updated the README")]
+    reflow = changed(
+        "README.md", "-The default timeout is 10 seconds.", "+The default  timeout is 10 seconds.  "
+    )
+    body = "Reject blank URLs. README updated."
+    check = one(
+        run_pr_checks(pr(body=body, files=[CODE_FIX, reflow]), claims, None), "pr.docs_claim"
+    )
+    assert check.status is CheckStatus.WARN
+    assert check.signal is Signal.CONTRADICTS and check.strength == 0.45
+    assert "documentation claim backed only by whitespace changes" in check.title.lower()
+    assert check.claim_ids == ["C1"] and check.evidence[0].path == "README.md"
+    mixed = run_pr_checks(pr(body=body, files=[CODE_FIX, reflow, DOC_EDIT]), [], None)
+    passed = one(mixed, "pr.docs_claim")
+    assert passed.status is CheckStatus.PASS and "1 doc file(s)" in passed.title
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -597,12 +615,20 @@ def test_mention_of_a_nonexistent_file_fails(sample_repo: Workspace):
     )
 
 
-def test_existing_but_unchanged_file_is_info_with_permalink(sample_repo: Workspace):
-    body = REAL_BODY + " Callers in src/widget/net.py are unaffected."
+def test_existing_but_unchanged_file_warns_with_permalink(sample_repo: Workspace):
+    body = REAL_BODY + " By normalising the host in src/widget/net.py."
+    claims = [
+        Claim(id="C1", text="Normalises the host in src/widget/net.py", type=ClaimType.BEHAVIOR),
+        change_claim("C2", "Touches the parser", "net.py"),
+        change_claim("C3", "Rejects blank URLs"),
+    ]
     check = one(
-        run_pr_checks(pr(body=body, files=[CODE_FIX]), [], sample_repo), "pr.mentioned_files"
+        run_pr_checks(pr(body=body, files=[CODE_FIX]), claims, sample_repo), "pr.mentioned_files"
     )
-    assert check.status is CheckStatus.INFO and check.signal is Signal.NEUTRAL
+    assert check.status is CheckStatus.WARN
+    assert check.signal is Signal.CONTRADICTS and check.strength == 0.25
+    assert check.title == "`src/widget/net.py` is named as changed but is not touched by this PR."
+    assert check.claim_ids == ["C1", "C2"]
     [evidence] = check.evidence
     assert evidence.kind is EvidenceKind.CODE and evidence.path == "src/widget/net.py"
     assert evidence.excerpt == '1 | """Tiny HTTP client."""'
@@ -655,7 +681,7 @@ def test_unicode_and_case_insensitive_mentions(make_repo: Callable[..., Workspac
     body = REAL_BODY + " See docs/übersicht.md and readme.md."
     checks = run_pr_checks(pr(body=body, files=[DOC_EDIT]), [], ws)
     statuses = {c.status for c in by_id(checks, "pr.mentioned_files")}
-    assert statuses == {CheckStatus.PASS, CheckStatus.INFO}
+    assert statuses == {CheckStatus.PASS, CheckStatus.WARN}
 
 
 # --------------------------------------------------------------------------
@@ -678,10 +704,15 @@ def test_symbols_in_the_diff_pass(sample_repo: Workspace):
 
 def test_symbol_in_repository_but_untouched_warns(sample_repo: Workspace):
     body = REAL_BODY + " `Client.fetch` callers benefit too."
-    checks = run_pr_checks(pr(body=body, files=[CODE_FIX]), [], sample_repo)
+    claims = [
+        Claim(id="C1", text="Client.fetch callers benefit", type=ClaimType.BEHAVIOR),
+        change_claim("C2", "Rejects blank URLs"),
+    ]
+    checks = run_pr_checks(pr(body=body, files=[CODE_FIX]), claims, sample_repo)
     check = one(checks, "pr.mentioned_symbols")
     assert check.status is CheckStatus.WARN
-    assert check.signal is Signal.NEUTRAL and check.strength == 0.2
+    assert check.signal is Signal.CONTRADICTS and check.strength == 0.2
+    assert check.claim_ids == ["C1"]
     assert "mentioned but not touched by this PR" in check.title
     [evidence] = check.evidence
     assert evidence.path == "src/widget/net.py" and "def fetch" in evidence.excerpt
@@ -922,7 +953,7 @@ def test_mentioned_binary_or_empty_files_cite_no_lines(make_repo: Callable[..., 
     ws_empty = make_repo({"src/widget/__init__.py": "", "assets/logo.png": "\x00PNG"}, name="other")
     for workspace in (ws, ws_empty):
         check = one(run_pr_checks(pr(body=body, files=files), [], workspace), "pr.mentioned_files")
-        assert check.status is CheckStatus.INFO
+        assert check.status is CheckStatus.WARN
         for evidence in check.evidence:
             lines = workspace.lines(evidence.path)
             assert lines and 1 <= evidence.line_start <= len(lines)
