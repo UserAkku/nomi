@@ -61,11 +61,14 @@ def _write_outputs(report: Report, fmt: str, out: Path | None) -> None:
     markdown = render_markdown(report)
     payload = render_json(report)
     if out is not None:
-        out.mkdir(parents=True, exist_ok=True)
-        if fmt in ("md", "both"):
-            (out / "report.md").write_text(markdown)
-        if fmt in ("json", "both"):
-            (out / "report.json").write_text(payload)
+        try:
+            out.mkdir(parents=True, exist_ok=True)
+            if fmt in ("md", "both"):
+                (out / "report.md").write_text(markdown)
+            if fmt in ("json", "both"):
+                (out / "report.json").write_text(payload)
+        except OSError as exc:
+            _fail(f"cannot write report to {out}: {exc}")
         err.print(f"[green]wrote[/] report to {out}/")
     else:
         sys.stdout.write((payload if fmt == "json" else markdown) + "\n")
@@ -104,6 +107,11 @@ def analyze(
 
     if fmt not in ("md", "json", "both"):
         _fail("--format must be md, json or both")
+    # Fail before the (slow) analysis rather than after it.
+    if out is not None and out.exists() and not out.is_dir():
+        _fail(f"cannot write report to {out}: it exists and is not a directory")
+    if repo_path is not None and repo_path.exists() and not repo_path.is_dir():
+        _fail(f"--repo-path {repo_path} is not a directory")
     settings = get_settings()
     if model:
         settings = settings.model_copy(update={"llm_model": model})
@@ -262,7 +270,7 @@ def dataset_build(
 @app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
-    port: int = typer.Option(8000, "--port"),
+    port: int = typer.Option(8000, "--port", min=1, max=65535),
 ) -> None:
     """Run the GitHub App webhook server."""
     import uvicorn

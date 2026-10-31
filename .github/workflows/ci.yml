@@ -29,6 +29,8 @@ jobs:
         run: uv sync --locked
       - name: Ruff (lint)
         run: uv run ruff check .
+      - name: Ruff (format)
+        run: uv run ruff format --check .
 
   test:
     name: Test (Python ${{ matrix.python }})

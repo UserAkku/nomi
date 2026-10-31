@@ -17,9 +17,9 @@ as a control, so the benchmark also measures false alarms on genuine reports.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
-import sys
 from pathlib import Path
 
 from nomi.config import get_settings
@@ -37,7 +37,11 @@ def main(src: str, dest: str) -> None:
             continue
         ws = open_github_workspace(item.repo, cache_dir=settings.cache_dir, at=item.created_at)
         package = (ws.python_packages or [item.repo.split("/")[1]])[0]
-        candidates = [f for f in ws.files if f.endswith(".py") and f"/{package}/" in f"/{f}" and "test" not in f]
+        candidates = [
+            f
+            for f in ws.files
+            if f.endswith(".py") and f"/{package}/" in f"/{f}" and "test" not in f
+        ]
         if not candidates:
             continue
         target = max(candidates, key=lambda f: len(ws.lines(f) or []))
@@ -50,14 +54,31 @@ def main(src: str, dest: str) -> None:
         )
         original = item.model_dump(mode="json")
         original["source_labels"] = [*item.source_labels, "control: unmodified"]
-        twin = {**original, "id": f"{item.id}+injected", "body": item.body + sentence,
-                "gold": "invalid", "source_labels": ["injected: fabricated root cause"]}
+        twin = {
+            **original,
+            "id": f"{item.id}+injected",
+            "body": item.body + sentence,
+            "gold": "invalid",
+            "source_labels": ["injected: fabricated root cause"],
+        }
         rows += [original, twin]
     with open(dest, "w") as fh:
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-    print(f"wrote {len(rows)} items ({len(rows) // 2} controls + {len(rows) // 2} injected) to {dest}")
+    print(
+        f"wrote {len(rows)} items ({len(rows) // 2} controls + {len(rows) // 2} injected) to {dest}"
+    )
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Add a fabricated-root-cause twin to every confirmed issue in a dataset."
+    )
+    parser.add_argument("src", help="JSONL dataset from `nomi dataset build`.")
+    parser.add_argument("dest", help="JSONL file to write (controls + injected twins).")
+    return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2])
+    args = _parse_args()
+    main(args.src, args.dest)
