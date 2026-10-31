@@ -200,3 +200,13 @@ def test_hostile_or_empty_input_never_crashes(sample_repo, body):
     sub = Submission(kind=Kind.ISSUE, repo="acme/widget", title="t", body=body)
     report = analyze(sub, sample_repo)
     assert report.assessment.verdict in OverallVerdict
+
+
+def test_host_paths_never_reach_the_report(sample_repo):
+    from pathlib import Path
+
+    note = f"Sandbox unavailable: cannot connect to unix://{Path.home()}/.docker/run/docker.sock"
+    sub = Submission(kind=Kind.ISSUE, repo="acme/widget", title="t", body="b")
+    report = analyze(sub, sample_repo, notes=[note])
+    assert str(Path.home()) not in report.model_dump_json()
+    assert any("~/.docker" in n for n in report.limitations)

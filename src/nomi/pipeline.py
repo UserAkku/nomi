@@ -15,6 +15,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 from nomi import __version__
 from nomi.assess import (
@@ -115,7 +116,7 @@ def analyze(
     # Only credit the model if it actually contributed; a fallback run is deterministic.
     model_used = llm.name if llm is not None and _model_contributed(claims, judgments) else None
 
-    extra = list(notes or [])
+    extra = [_scrub(note) for note in notes or []]
     if workspace is None:
         extra.append("The repository could not be loaded, so no claim was checked against code.")
     if llm is not None and model_used is None:
@@ -144,6 +145,13 @@ def analyze(
         limitations=extra + limitations(checks, model_used, commit),
         timings=timings,
     )
+
+
+def _scrub(text: str) -> str:
+    """Keep host details (home directory, socket paths) out of public reports."""
+    home = str(Path.home())
+    text = text.replace(home, "~") if home and home != "/" else text
+    return text if len(text) <= 160 else text[:157].rstrip() + "..."
 
 
 def _model_contributed(claims: list, judgments: list[ClaimAssessment]) -> bool:
