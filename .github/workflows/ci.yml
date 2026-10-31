@@ -54,3 +54,40 @@ jobs:
         run: docker pull python:3.12-slim
       - name: Run tests
         run: uv run pytest --cov --cov-report=term-missing:skip-covered
+
+  smoke:
+    name: End-to-end smoke test (offline example)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: test
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: nomi doctor
+        run: uv run nomi doctor
+      - name: Analyse the bundled fabricated report (deterministic mode)
+        run: |
+          uv run nomi analyze \
+            --input-file examples/fabricated-security-report/input.json \
+            --repo-path examples/fabricated-security-report/repo \
+            --no-llm --no-sandbox --format both --out ci-output
+          uv run python - <<'PY'
+          import json
+          report = json.load(open("ci-output/report.json"))
+          verdict = report["assessment"]["verdict"]
+          print("verdict:", verdict)
+          assert verdict == "likely_invalid", verdict
+          PY
+      - name: Analyse the bundled pull request (deterministic mode)
+        run: |
+          uv run nomi analyze \
+            --input-file examples/pull-request-mismatch/input.json \
+            --repo-path examples/pull-request-mismatch/repo \
+            --no-llm --no-sandbox --format json --out ci-output-pr
+          test -s ci-output-pr/report.json
