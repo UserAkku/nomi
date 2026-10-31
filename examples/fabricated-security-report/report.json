@@ -1,0 +1,448 @@
+{
+  "schema_version": "1",
+  "nomi_version": "0.1.0",
+  "kind": "issue",
+  "repo": "example/minihttp",
+  "number": 101,
+  "url": "https://github.com/example/minihttp/issues/101",
+  "title": "Heap buffer overflow in mh_easy_setopt_url_safe() leads to RCE",
+  "commit": null,
+  "analyzed_at": "2026-10-31T22:42:29.907964Z",
+  "model": "qwen3:4b-instruct-2507-q4_K_M",
+  "summary": "Checked 6 claims: 3 contradicted, 2 unverified, 1 needs info. Top finding: `mh_easy_setopt_url_safe` is not defined or referenced anywhere in the repository in the analysed checkout.",
+  "claims": [
+    {
+      "claim": {
+        "id": "C1",
+        "text": "heap buffer overflow in `mh_easy_setopt_url_safe()` lets a remote attacker execute arbitrary code by supplying a long URL",
+        "type": "behavior",
+        "quote": "heap buffer overflow in `mh_easy_setopt_url_safe()` lets a remote attacker execute arbitrary code by supplying a long URL",
+        "entities": [
+          "mh_easy_setopt_url_safe",
+          "URL",
+          "remote attacker"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "contradicted",
+      "confidence": "high",
+      "rationale": "`mh_easy_setopt_url_safe` is not defined or referenced anywhere in the repository in the analysed checkout",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "does not contain `mh_easy_setopt_url_safe`",
+          "path": "lib/easy.c",
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": null
+        }
+      ],
+      "method": "deterministic"
+    },
+    {
+      "claim": {
+        "id": "C2",
+        "text": "`lib/easy.c` line 412, the function `mh_easy_setopt_url_safe()` copies the user-supplied URL into a fixed 256-byte buffer with `strcpy()` without checking its length",
+        "type": "code_fact",
+        "quote": "`lib/easy.c` line 412, the function `mh_easy_setopt_url_safe()` copies the user-supplied URL into a fixed 256-byte buffer with `strcpy()` without checking its length",
+        "entities": [
+          "lib/easy.c",
+          "line 412",
+          "mh_easy_setopt_url_safe",
+          "strcpy",
+          "256-byte buffer"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "contradicted",
+      "confidence": "high",
+      "rationale": "`mh_easy_setopt_url_safe` is not defined or referenced anywhere in the repository in the analysed checkout",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "does not contain `mh_easy_setopt_url_safe`",
+          "path": "lib/easy.c",
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": null
+        }
+      ],
+      "method": "deterministic"
+    },
+    {
+      "claim": {
+        "id": "C3",
+        "text": "Because the URL can come from an HTTP redirect, a malicious server controls it, which makes this remotely exploitable (CWE-122).",
+        "type": "environment",
+        "quote": "Because the URL can come from an HTTP redirect, a malicious server controls it, which makes this remotely exploitable (CWE-122).",
+        "entities": [
+          "HTTP redirect",
+          "malicious server",
+          "remotely exploitable",
+          "CWE-122"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "needs_info",
+      "confidence": "low",
+      "rationale": "The report does not state the version or environment needed to check this claim.",
+      "evidence": [],
+      "method": "none"
+    },
+    {
+      "claim": {
+        "id": "C4",
+        "text": "The same unchecked copy also exists in `lib/vtls/openssl_ext.c`, which is called from `mh_easy_perform()`",
+        "type": "code_fact",
+        "quote": "The same unchecked copy also exists in `lib/vtls/openssl_ext.c`, which is called from `mh_easy_perform()`",
+        "entities": [
+          "lib/vtls/openssl_ext.c",
+          "mh_easy_perform"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim. Model note: Model found the evidence insufficient: The claim references a copy of code existing in `lib/vtls/openssl_ext.c` that is called from `mh_easy_perform()`. However, none of the provided evidence includes the file `lib/vtls/openssl_ext.c` or any code related to it. The evidence only covers `minihttp.h`, `easy.c`, `url.c`, `README.md`, and `test_url.c`. There is no mention or content of `openssl_ext.c` or any function called from `mh_easy_perform()` that would support or contradict the claim. Therefore, the evidence is insufficient to ev….",
+      "evidence": [],
+      "method": "llm"
+    },
+    {
+      "claim": {
+        "id": "C5",
+        "text": "Remote code execution in every application that uses minihttp 2.4.1.",
+        "type": "security_impact",
+        "quote": "Remote code execution in every application that uses minihttp 2.4.1.",
+        "entities": [
+          "minihttp 2.4.1"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim. Model note: Unverified: model gave no verifiable citation for its 'contradicts' answer (1 discarded: quote not found in the cited evidence or unknown evidence id). Model rationale: The code in E3 shows that mh_url_parse rejects URLs that are longer than MH_MAX_URL or missing '://', and returns MH_URL_MALFORMAT in such cases. This means that malformed or excessively long URLs are not processed — they are explicitly rejected. There is no mechanism for arbitrary code execution, as the parsing is strictly bounded and does not allow unsafe operations or dynamic code evaluation. Therefore, the claim of remote code execution in every application using minihttp 2.4.1 is contradic…",
+      "evidence": [],
+      "method": "llm"
+    },
+    {
+      "claim": {
+        "id": "C6",
+        "text": "Replace `strcpy()` with `strncpy()` in `mh_easy_setopt_url_safe()`",
+        "type": "change",
+        "quote": "Replace `strcpy()` with `strncpy()` in `mh_easy_setopt_url_safe()`",
+        "entities": [
+          "strcpy",
+          "strncpy",
+          "mh_easy_setopt_url_safe"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "contradicted",
+      "confidence": "high",
+      "rationale": "`mh_easy_setopt_url_safe` is not defined or referenced anywhere in the repository in the analysed checkout",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "does not contain `mh_easy_setopt_url_safe`",
+          "path": "lib/easy.c",
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": null
+        }
+      ],
+      "method": "deterministic"
+    }
+  ],
+  "checks": [
+    {
+      "id": "grounding.file",
+      "title": "`lib/easy.c` exists in the repository",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.15,
+      "detail": "",
+      "claim_ids": [
+        "C2"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "file cited by the report",
+          "path": "lib/easy.c",
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": null
+        }
+      ]
+    },
+    {
+      "id": "grounding.line",
+      "title": "`lib/easy.c` has 62 lines, but the report cites line 412",
+      "status": "fail",
+      "signal": "contradicts",
+      "strength": 0.75,
+      "detail": "The cited line 412 lies past the end of the file in the analysed checkout. Either the line number is invented or the report refers to a very different version.",
+      "claim_ids": [
+        "C2"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "end of file (line 62)",
+          "path": "lib/easy.c",
+          "line_start": 60,
+          "line_end": 62,
+          "excerpt": "60 |   free(h->url);\n61 |   free(h);\n62 | }",
+          "url": null
+        }
+      ]
+    },
+    {
+      "id": "grounding.file",
+      "title": "No file `lib/vtls/openssl_ext.c` exists in the repository in the analysed checkout",
+      "status": "warn",
+      "signal": "contradicts",
+      "strength": 0.3,
+      "detail": "It may also be a file on the reporter's machine.",
+      "claim_ids": [
+        "C4"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "grounding.file",
+      "title": "`include/minihttp.h` exists in the repository (cited as `minihttp.h`)",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.15,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "file cited by the report",
+          "path": "include/minihttp.h",
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": null
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`mh_easy_setopt_url_safe` is not defined or referenced anywhere in the repository in the analysed checkout",
+      "status": "fail",
+      "signal": "contradicts",
+      "strength": 0.8,
+      "detail": "The report attributes it to this project: a stack trace places it in `lib/easy.c`.",
+      "claim_ids": [
+        "C1",
+        "C2",
+        "C6"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "does not contain `mh_easy_setopt_url_safe`",
+          "path": "lib/easy.c",
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": null
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`mh_easy_perform` is defined at `lib/easy.c:43`",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.15,
+      "detail": "",
+      "claim_ids": [
+        "C4"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "lib/easy.c",
+          "line_start": 43,
+          "line_end": 43,
+          "excerpt": "43 | mh_code mh_easy_perform(mh_easy *h)",
+          "url": null
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`main` is defined at `tests/test_url.c:7`",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.15,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "function definition",
+          "path": "tests/test_url.c",
+          "line_start": 7,
+          "line_end": 7,
+          "excerpt": "7 | int main(void)",
+          "url": null
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`mh_easy_init` is defined at `lib/easy.c:11`",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.15,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "lib/easy.c",
+          "line_start": 11,
+          "line_end": 11,
+          "excerpt": "11 | mh_easy *mh_easy_init(void)",
+          "url": null
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`ASan` was not found in the repository in the analysed checkout; it may come from a dependency",
+      "status": "warn",
+      "signal": "contradicts",
+      "strength": 0.3,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": []
+    },
+    {
+      "id": "grounding.error_message",
+      "title": "Error text `AddressSanitizer: heap-buffer-overflow on address 0x602000000110` was not found in the repository's code",
+      "status": "info",
+      "signal": "neutral",
+      "strength": 0.0,
+      "detail": "It may come from a dependency, the runtime or the operating system.",
+      "claim_ids": [],
+      "evidence": []
+    },
+    {
+      "id": "grounding.error_message",
+      "title": "Error text `heap-buffer-overflow on address 0x602000000110` was not found in the repository's code",
+      "status": "info",
+      "signal": "neutral",
+      "strength": 0.0,
+      "detail": "It may come from a dependency, the runtime or the operating system.",
+      "claim_ids": [],
+      "evidence": []
+    },
+    {
+      "id": "trace.frames",
+      "title": "Stack trace does not match the code in the analysed checkout: 2 of 2 frames point at the wrong lines or functions",
+      "status": "fail",
+      "signal": "contradicts",
+      "strength": 0.65,
+      "detail": "- `lib/easy.c` has 62 lines, but the frame cites line 412\n- `lib/easy.c` has 62 lines, but the frame cites line 530",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "end of `lib/easy.c`",
+          "path": "lib/easy.c",
+          "line_start": 60,
+          "line_end": 62,
+          "excerpt": "60 |   free(h->url);\n61 |   free(h);\n62 | }",
+          "url": null
+        },
+        {
+          "kind": "code",
+          "description": "end of `lib/easy.c`",
+          "path": "lib/easy.c",
+          "line_start": 60,
+          "line_end": 62,
+          "excerpt": "60 |   free(h->url);\n61 |   free(h);\n62 | }",
+          "url": null
+        }
+      ]
+    },
+    {
+      "id": "repro.sandbox",
+      "title": "Dynamic reproduction not run",
+      "status": "skipped",
+      "signal": "neutral",
+      "strength": 0.0,
+      "detail": "No Docker sandbox for this run (disabled or Docker unavailable)",
+      "claim_ids": [],
+      "evidence": []
+    }
+  ],
+  "completeness": {
+    "present": [
+      "steps_to_reproduce",
+      "version",
+      "logs",
+      "code_sample"
+    ],
+    "missing": [
+      "expected_behavior",
+      "actual_behavior",
+      "environment"
+    ],
+    "score": 0.65
+  },
+  "assessment": {
+    "verdict": "likely_invalid",
+    "confidence": "high",
+    "score": -1.85,
+    "reasons": [
+      "Strong contradicting evidence: 2 check(s) contradict the report (strongest 0.80, total 2.60).",
+      "-0.80 grounding.symbol: `mh_easy_setopt_url_safe` is not defined or referenced anywhere in the repository in the analysed checkout",
+      "-0.75 grounding.line: `lib/easy.c` has 62 lines, but the report cites line 412",
+      "-0.65 trace.frames: Stack trace does not match the code in the analysed checkout: 2 of 2 frames point at the wrong lines or functions",
+      "-0.30 grounding.file: No file `lib/vtls/openssl_ext.c` exists in the repository in the analysed checkout",
+      "-0.30 grounding.symbol: `ASan` was not found in the repository in the analysed checkout; it may come from a dependency"
+    ]
+  },
+  "missing_information": [
+    "What you expected to happen vs. what happened",
+    "Your environment (OS, runtime version)",
+    "More detail to verify claim C3: “Because the URL can come from an HTTP redirect, a malicious server controls it, which makes this remotely exploitable (CWE-122).”"
+  ],
+  "next_steps": [
+    "Ask the reporter where `mh_easy_setopt_url_safe` comes from: `mh_easy_setopt_url_safe` is not defined or referenced anywhere in the repository in the analysed checkout",
+    "Ask the reporter where `lib/easy.c` comes from: `lib/easy.c` has 62 lines, but the report cites line 412",
+    "Ask the reporter to clarify: Stack trace does not match the code in the analysed checkout: 2 of 2 frames point at the wrong lines or functions",
+    "Wait for the reporter's answer before deciding; a maintainer should confirm before closing or labelling anything."
+  ],
+  "limitations": [
+    "Sandbox unavailable: the Docker daemon is not reachable: failed to connect to the docker API at unix://~/.docker/run/docker.sock; check if the path is correc...",
+    "Dynamic reproduction not run: skipped (No Docker sandbox for this run (disabled or Docker unavailable))",
+    "LLM judgements come from a small local model and are advisory (never high confidence on their own)"
+  ],
+  "timings": {
+    "extract": 0.002,
+    "claims": 0.006,
+    "verify": 0.029,
+    "reproduce": 0.0,
+    "judge": 0.005
+  }
+}

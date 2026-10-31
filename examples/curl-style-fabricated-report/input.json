@@ -1,0 +1,10 @@
+{
+  "kind": "issue",
+  "repo": "curl/curl",
+  "number": null,
+  "url": null,
+  "title": "Stack buffer overflow in curl_easy_setopt_safe() via long redirect URL (RCE)",
+  "body": "## Summary\nA stack-based buffer overflow in `curl_easy_setopt_safe()` allows remote code execution when libcurl follows a redirect to a long URL.\n\n## Details\nIn `lib/easy.c` line 3412, `curl_easy_setopt_safe()` copies the redirect URL into a fixed 1024-byte stack buffer with `strcpy()` without validating its length. Because `CURLOPT_FOLLOWLOCATION` makes libcurl copy the `Location:` header value, a malicious server fully controls the overflow (CWE-121).\n\nThe vulnerable helper `Curl_follow_redirect_copy()` in `lib/transfer_safe.c` is also affected.\n\n## Steps to reproduce\n1. Run a server that answers with `Location: http://` followed by 5000 `A` characters.\n2. `curl -L http://attacker.example/`\n\n## ASan output\n```\n==31337==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7ffd5c3a1e40\nWRITE of size 5012 at 0x7ffd5c3a1e40 thread T0\n    #0 0x55d0c1 in curl_easy_setopt_safe lib/easy.c:3412:5\n    #1 0x55d2f7 in Curl_follow_redirect_copy lib/transfer_safe.c:88:3\n    #2 0x55e010 in Curl_follow lib/transfer.c:1501:9\n```\n\n## Impact\nRemote code execution in every application using libcurl 8.4.0 with redirects enabled.\n",
+  "author": "example-reporter",
+  "created_at": "2026-10-30T12:00:00Z"
+}
