@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: Ruff (lint)
+        run: uv run ruff check .
+      - name: Ruff (format)
+        run: uv run ruff format --check .
+
+  test:
+    name: Test (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+      - name: Install project and dependencies
+        run: uv sync --locked
+      - name: Pre-pull sandbox image
+        # Docker is available on GitHub-hosted Ubuntu runners, so the
+        # sandbox tests run for real here (they skip on machines without Docker).
+        run: docker pull python:3.12-slim
+      - name: Run tests
+        run: uv run pytest --cov --cov-report=term-missing:skip-covered
+
+  smoke:
+    name: End-to-end smoke test (offline example)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: test
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: nomi doctor
+        run: uv run nomi doctor
+      - name: Analyse the bundled fabricated report (deterministic mode)
+        run: |
+          uv run nomi analyze \
+            --input-file examples/fabricated-security-report/input.json \
+            --repo-path examples/fabricated-security-report/repo \
+            --no-llm --no-sandbox --format both --out ci-output
+          uv run python - <<'PY'
+          import json
+          report = json.load(open("ci-output/report.json"))
+          verdict = report["assessment"]["verdict"]
+          print("verdict:", verdict)
+          assert verdict == "likely_invalid", verdict
+          PY
+      - name: Analyse the bundled pull request (deterministic mode)
+        run: |
+          uv run nomi analyze \
+            --input-file examples/pull-request-mismatch/input.json \
+            --repo-path examples/pull-request-mismatch/repo \
+            --no-llm --no-sandbox --format json --out ci-output-pr
+          test -s ci-output-pr/report.json

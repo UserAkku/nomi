@@ -1,0 +1,171 @@
+{
+  "schema_version": "1",
+  "nomi_version": "0.1.0",
+  "kind": "issue",
+  "repo": "celery/celery",
+  "number": 2126,
+  "url": "https://github.com/celery/celery/issues/2126",
+  "title": "documation fix for django 1.7 \"App registry isn't ready yet\"",
+  "commit": "85a924a12aa5212a08e34e1600b9cd4a23b7cf95",
+  "analyzed_at": "2026-10-31T22:31:58.260202Z",
+  "model": "qwen3:4b-instruct-2507-q4_K_M",
+  "summary": "Checked 3 claims: 2 unverified, 1 needs info. Top finding: `django.setup` is defined at `celery/app/log.py:67` (and 4 more).",
+  "claims": [
+    {
+      "claim": {
+        "id": "C1",
+        "text": "The celery app file needs to call django.setup in django 1.7 or you get an exception stating \"App registry isn't ready yet\" when a task is run.",
+        "type": "behavior",
+        "quote": "The celery app file needs to call django.setup in django 1.7 or you get an exception stating \"App registry isn't ready yet\" when a task is run.",
+        "entities": [
+          "django.setup",
+          "django 1.7",
+          "App registry isn't ready yet",
+          "task is run"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim. Model note: Model found the evidence insufficient: The provided evidence does not contain any mention of django.setup or the App registry readiness in the context of Celery tasks. While E4 discusses task registration and the task registry, and E5 discusses Django transactions and task execution, none of the evidence addresses the specific requirement of calling django.setup in Django 1.7 or the 'App registry isn't ready yet' error. Therefore, there is no direct or indirect support for the claim based on the given evidence.",
+      "evidence": [],
+      "method": "llm"
+    },
+    {
+      "claim": {
+        "id": "C2",
+        "text": "See https://docs.djangoproject.com/en/dev/releases/1.7/#standalone-scripts",
+        "type": "environment",
+        "quote": "See https://docs.djangoproject.com/en/dev/releases/1.7/#standalone-scripts",
+        "entities": [
+          "https://docs.djangoproject.com/en/dev/releases/1.7/#standalone-scripts"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "needs_info",
+      "confidence": "low",
+      "rationale": "The report does not state the version or environment needed to check this claim.",
+      "evidence": [],
+      "method": "none"
+    },
+    {
+      "claim": {
+        "id": "C3",
+        "text": "The documentation for first steps with django (http://docs.celeryproject.org/en/master/django/first-steps-with-django.html) need to be updated to reflect this.",
+        "type": "location",
+        "quote": "The documentation for first steps with django (http://docs.celeryproject.org/en/master/django/first-steps-with-django.html) need to be updated to reflect this.",
+        "entities": [
+          "http://docs.celeryproject.org/en/master/django/first-steps-with-django.html"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim. Model note: Model found the evidence insufficient: The claim refers to updating the documentation for 'first steps with django' in Celery, specifically pointing to a URL (http://docs.celeryproject.org/en/master/django/first-steps-with-django.html). However, none of the provided evidence blocks mention this specific page or its content. The evidence includes references to 'first steps with Celery' and 'next steps' tutorials, but no documentation about 'first steps with django' is present. Therefore, there is no evidence to confirm or contradict….",
+      "evidence": [],
+      "method": "llm"
+    }
+  ],
+  "checks": [
+    {
+      "id": "grounding.symbol",
+      "title": "`django.setup` is defined at `celery/app/log.py:67` (and 4 more)",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.15,
+      "detail": "",
+      "claim_ids": [
+        "C1"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "celery/app/log.py",
+          "line_start": 67,
+          "line_end": 67,
+          "excerpt": "67 |     def setup(self, loglevel=None, logfile=None, redirect_stdouts=False,",
+          "url": "https://github.com/celery/celery/blob/85a924a12aa5212a08e34e1600b9cd4a23b7cf95/celery/app/log.py#L67"
+        },
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "celery/contrib/sphinx.py",
+          "line_start": 70,
+          "line_end": 70,
+          "excerpt": "70 | def setup(app):",
+          "url": "https://github.com/celery/celery/blob/85a924a12aa5212a08e34e1600b9cd4a23b7cf95/celery/contrib/sphinx.py#L70"
+        },
+        {
+          "kind": "test",
+          "description": "function definition",
+          "path": "celery/tests/__init__.py",
+          "line_start": 18,
+          "line_end": 18,
+          "excerpt": "18 | def setup():",
+          "url": "https://github.com/celery/celery/blob/85a924a12aa5212a08e34e1600b9cd4a23b7cf95/celery/tests/__init__.py#L18"
+        }
+      ]
+    },
+    {
+      "id": "repro.sandbox",
+      "title": "Dynamic reproduction not run",
+      "status": "skipped",
+      "signal": "neutral",
+      "strength": 0.0,
+      "detail": "No Docker sandbox for this run (disabled or Docker unavailable)",
+      "claim_ids": [],
+      "evidence": []
+    }
+  ],
+  "completeness": {
+    "present": [
+      "actual_behavior",
+      "version"
+    ],
+    "missing": [
+      "steps_to_reproduce",
+      "expected_behavior",
+      "environment",
+      "logs",
+      "code_sample"
+    ],
+    "score": 0.25
+  },
+  "assessment": {
+    "verdict": "needs_info",
+    "confidence": "low",
+    "score": 0.15,
+    "reasons": [
+      "The issue lacks most of what is needed to verify it (completeness 0.25) and little supporting evidence was found.",
+      "+0.15 grounding.symbol: `django.setup` is defined at `celery/app/log.py:67` (and 4 more)"
+    ]
+  },
+  "missing_information": [
+    "Step-by-step instructions to reproduce the problem",
+    "What you expected to happen vs. what happened",
+    "Your environment (OS, runtime version)",
+    "The full error output or traceback",
+    "A minimal code sample or command that reproduces it",
+    "More detail to verify claim C2: “See https://docs.djangoproject.com/en/dev/releases/1.7/#standalone-scripts”"
+  ],
+  "next_steps": [
+    "Ask the reporter for: step-by-step instructions to reproduce the problem; what you expected to happen vs. what happened; your environment (OS, runtime version); the full error output or traceback (and 3 more)",
+    "Re-run Nomi once the report has been updated."
+  ],
+  "limitations": [
+    "Dynamic reproduction not run: skipped (No Docker sandbox for this run (disabled or Docker unavailable))",
+    "LLM judgements come from a small local model and are advisory (never high confidence on their own)",
+    "Evidence is pinned to commit 85a924a12aa5212a08e34e1600b9cd4a23b7cf95"
+  ],
+  "timings": {
+    "extract": 0.001,
+    "claims": 0.003,
+    "verify": 0.076,
+    "reproduce": 0.0,
+    "judge": 58.748
+  }
+}

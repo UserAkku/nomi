@@ -1,0 +1,441 @@
+{
+  "schema_version": "1",
+  "nomi_version": "0.1.0",
+  "kind": "issue",
+  "repo": "curl/curl",
+  "number": null,
+  "url": null,
+  "title": "Stack buffer overflow in curl_easy_setopt_safe() via long redirect URL (RCE)",
+  "commit": "a133b27d0779fd6f74127139231efa456fdd2b44",
+  "analyzed_at": "2026-10-31T23:26:13.302836Z",
+  "model": "qwen3:4b-instruct-2507-q4_K_M",
+  "summary": "Checked 6 claims: 2 contradicted, 3 unverified, 1 needs info. Top finding: `curl_easy_setopt_safe` is not defined or referenced anywhere in the repository at `a133b27`.",
+  "claims": [
+    {
+      "claim": {
+        "id": "C1",
+        "text": "stack-based buffer overflow in `curl_easy_setopt_safe()` allows remote code execution when libcurl follows a redirect to a long URL.",
+        "type": "behavior",
+        "quote": "stack-based buffer overflow in `curl_easy_setopt_safe()` allows remote code execution when libcurl follows a redirect to a long URL.",
+        "entities": [
+          "curl_easy_setopt_safe",
+          "redirect",
+          "long URL",
+          "remote code execution"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "contradicted",
+      "confidence": "high",
+      "rationale": "`curl_easy_setopt_safe` is not defined or referenced anywhere in the repository at `a133b27`",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "does not contain `curl_easy_setopt_safe`",
+          "path": "lib/easy.c",
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": "https://github.com/curl/curl/blob/a133b27d0779fd6f74127139231efa456fdd2b44/lib/easy.c"
+        }
+      ],
+      "method": "deterministic"
+    },
+    {
+      "claim": {
+        "id": "C2",
+        "text": "`lib/easy.c` line 3412, `curl_easy_setopt_safe()` copies the redirect URL into a fixed 1024-byte stack buffer with `strcpy()` without validating its length",
+        "type": "code_fact",
+        "quote": "`lib/easy.c` line 3412, `curl_easy_setopt_safe()` copies the redirect URL into a fixed 1024-byte stack buffer with `strcpy()` without validating its length",
+        "entities": [
+          "lib/easy.c",
+          "line 3412",
+          "curl_easy_setopt_safe",
+          "strcpy",
+          "1024-byte stack buffer"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "contradicted",
+      "confidence": "high",
+      "rationale": "`curl_easy_setopt_safe` is not defined or referenced anywhere in the repository at `a133b27`",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "does not contain `curl_easy_setopt_safe`",
+          "path": "lib/easy.c",
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": "https://github.com/curl/curl/blob/a133b27d0779fd6f74127139231efa456fdd2b44/lib/easy.c"
+        }
+      ],
+      "method": "deterministic"
+    },
+    {
+      "claim": {
+        "id": "C3",
+        "text": "Because `CURLOPT_FOLLOWLOCATION` makes libcurl copy the `Location:` header value, a malicious server fully controls the overflow (CWE-121",
+        "type": "cause",
+        "quote": "Because `CURLOPT_FOLLOWLOCATION` makes libcurl copy the `Location:` header value, a malicious server fully controls the overflow (CWE-121",
+        "entities": [
+          "CURLOPT_FOLLOWLOCATION",
+          "CWE-121"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim. Model note: Unverified: model gave no verifiable citation for its 'supports' answer (2 discarded: quote not found in the cited evidence or unknown evidence id). Model rationale: The evidence confirms that CURLOPT_FOLLOWLOCATION enables libcurl to follow HTTP 3xx redirects by copying the Location: header value, and that this header can specify an arbitrary URL (including file:// or internal URLs), which allows a malicious server to control the redirect destination. This directly supports the claim that a malicious server can fully control the overflow via the Location: header, aligning with CWE-121 (Buffer Overflow via Untrusted Input).",
+      "evidence": [],
+      "method": "llm"
+    },
+    {
+      "claim": {
+        "id": "C4",
+        "text": "vulnerable helper `Curl_follow_redirect_copy()` in `lib/transfer_safe.c` is also affected",
+        "type": "code_fact",
+        "quote": "vulnerable helper `Curl_follow_redirect_copy()` in `lib/transfer_safe.c` is also affected",
+        "entities": [
+          "Curl_follow_redirect_copy",
+          "lib/transfer_safe.c"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim. Model note: Model found the evidence insufficient: The evidence provided does not mention or reference the `Curl_follow_redirect_copy()` function in `lib/transfer_safe.c`, nor does it confirm or deny that this specific helper is affected by a vulnerability. The documentation describes the structure of vulnerability entries and how advisories are generated, but it does not contain any code or information about the `Curl_follow_redirect_copy()` function or its behavior. Therefore, there is no direct or indirect evidence to support or contradict t…; 1 citation(s) discarded because the quote was not found in the cited evidence or the evidence id was unknown.",
+      "evidence": [],
+      "method": "llm"
+    },
+    {
+      "claim": {
+        "id": "C5",
+        "text": "Run a server that answers with `Location: http://` followed by 5000 `A` characters.\n2. `curl -L http://attacker.example/`",
+        "type": "reproduction",
+        "quote": "Run a server that answers with `Location: http://` followed by 5000 `A` characters.\n2. `curl -L http://attacker.example/`",
+        "entities": [
+          "server",
+          "Location: http://",
+          "curl -L",
+          "http://attacker.example/"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim.",
+      "evidence": [],
+      "method": "none"
+    },
+    {
+      "claim": {
+        "id": "C6",
+        "text": "Remote code execution in every application using libcurl 8.4.0 with redirects enabled.",
+        "type": "environment",
+        "quote": "Remote code execution in every application using libcurl 8.4.0 with redirects enabled.",
+        "entities": [
+          "libcurl 8.4.0",
+          "redirects enabled",
+          "application"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "needs_info",
+      "confidence": "low",
+      "rationale": "The report does not state the version or environment needed to check this claim.",
+      "evidence": [],
+      "method": "none"
+    }
+  ],
+  "checks": [
+    {
+      "id": "grounding.file",
+      "title": "`lib/easy.c` exists in the repository",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.15,
+      "detail": "",
+      "claim_ids": [
+        "C2"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "file cited by the report",
+          "path": "lib/easy.c",
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": "https://github.com/curl/curl/blob/a133b27d0779fd6f74127139231efa456fdd2b44/lib/easy.c"
+        }
+      ]
+    },
+    {
+      "id": "grounding.line",
+      "title": "`lib/easy.c` has 1,480 lines, but the report cites line 3,412",
+      "status": "fail",
+      "signal": "contradicts",
+      "strength": 0.75,
+      "detail": "The cited line 3,412 lies past the end of the file at `a133b27`. Either the line number is invented or the report refers to a very different version.",
+      "claim_ids": [
+        "C2"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "end of file (line 1,480)",
+          "path": "lib/easy.c",
+          "line_start": 1478,
+          "line_end": 1480,
+          "excerpt": "1478 | {\n1479 |   Curl_hash_clean(&data->meta_hash);\n1480 | }",
+          "url": "https://github.com/curl/curl/blob/a133b27d0779fd6f74127139231efa456fdd2b44/lib/easy.c#L1478-L1480"
+        }
+      ]
+    },
+    {
+      "id": "grounding.file",
+      "title": "No file `lib/transfer_safe.c` exists in the repository at `a133b27`",
+      "status": "warn",
+      "signal": "contradicts",
+      "strength": 0.3,
+      "detail": "It may also be a file on the reporter's machine. Did you mean `lib/transfer.c`?",
+      "claim_ids": [
+        "C4"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "similarly named file",
+          "path": "lib/transfer.c",
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": "https://github.com/curl/curl/blob/a133b27d0779fd6f74127139231efa456fdd2b44/lib/transfer.c"
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`curl_easy_setopt_safe` is not defined or referenced anywhere in the repository at `a133b27`",
+      "status": "fail",
+      "signal": "contradicts",
+      "strength": 0.8,
+      "detail": "The report attributes it to this project: a stack trace places it in `lib/easy.c`.",
+      "claim_ids": [
+        "C1",
+        "C2"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "does not contain `curl_easy_setopt_safe`",
+          "path": "lib/easy.c",
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": "https://github.com/curl/curl/blob/a133b27d0779fd6f74127139231efa456fdd2b44/lib/easy.c"
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`CURLOPT_FOLLOWLOCATION` is referenced (e.g. `.github/labeler.yml:270`) but not defined in the repository",
+      "status": "info",
+      "signal": "neutral",
+      "strength": 0.05,
+      "detail": "It is probably defined by a dependency, generated code or a macro.",
+      "claim_ids": [
+        "C3"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "reference",
+          "path": ".github/labeler.yml",
+          "line_start": 270,
+          "line_end": 270,
+          "excerpt": "270 |               docs/libcurl/opts/CURLOPT_FOLLOWLOCATION*,\\",
+          "url": "https://github.com/curl/curl/blob/a133b27d0779fd6f74127139231efa456fdd2b44/.github/labeler.yml#L270"
+        },
+        {
+          "kind": "doc",
+          "description": "reference",
+          "path": "docs/examples/crawler.c",
+          "line_start": 101,
+          "line_end": 101,
+          "excerpt": "101 |   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);",
+          "url": "https://github.com/curl/curl/blob/a133b27d0779fd6f74127139231efa456fdd2b44/docs/examples/crawler.c#L101"
+        },
+        {
+          "kind": "doc",
+          "description": "reference",
+          "path": "docs/examples/debug.c",
+          "line_start": 142,
+          "line_end": 142,
+          "excerpt": "142 |     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);",
+          "url": "https://github.com/curl/curl/blob/a133b27d0779fd6f74127139231efa456fdd2b44/docs/examples/debug.c#L142"
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`Curl_follow_redirect_copy` was not found in the repository at `a133b27`; it may come from a dependency",
+      "status": "warn",
+      "signal": "contradicts",
+      "strength": 0.3,
+      "detail": "",
+      "claim_ids": [
+        "C4"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "grounding.error_message",
+      "title": "Error text `AddressSanitizer: stack-buffer-overflow on address 0x7ffd5c3a1e40` was not found in the repository's code",
+      "status": "info",
+      "signal": "neutral",
+      "strength": 0.0,
+      "detail": "It may come from a dependency, the runtime or the operating system.",
+      "claim_ids": [],
+      "evidence": []
+    },
+    {
+      "id": "grounding.error_message",
+      "title": "Error text `stack-buffer-overflow on address 0x7ffd5c3a1e40` was not found in the repository's code",
+      "status": "info",
+      "signal": "neutral",
+      "strength": 0.0,
+      "detail": "It may come from a dependency, the runtime or the operating system.",
+      "claim_ids": [],
+      "evidence": []
+    },
+    {
+      "id": "trace.frames",
+      "title": "Stack trace does not match the code at `a133b27`: 2 of 2 frames point at the wrong lines or functions",
+      "status": "fail",
+      "signal": "contradicts",
+      "strength": 0.65,
+      "detail": "- `lib/easy.c` has 1,480 lines, but the frame cites line 3,412\n- `lib/transfer.c` has 914 lines, but the frame cites line 1,501",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "end of `lib/easy.c`",
+          "path": "lib/easy.c",
+          "line_start": 1478,
+          "line_end": 1480,
+          "excerpt": "1478 | {\n1479 |   Curl_hash_clean(&data->meta_hash);\n1480 | }",
+          "url": "https://github.com/curl/curl/blob/a133b27d0779fd6f74127139231efa456fdd2b44/lib/easy.c#L1478-L1480"
+        },
+        {
+          "kind": "code",
+          "description": "end of `lib/transfer.c`",
+          "path": "lib/transfer.c",
+          "line_start": 912,
+          "line_end": 914,
+          "excerpt": "912 | #endif\n913 |   return (data->state.origin->scheme->flags & PROTOPT_SSL);\n914 | }",
+          "url": "https://github.com/curl/curl/blob/a133b27d0779fd6f74127139231efa456fdd2b44/lib/transfer.c#L912-L914"
+        }
+      ]
+    },
+    {
+      "id": "version.release",
+      "title": "8.4.0 is a real release (tag curl-8_4_0)",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.1,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "history",
+          "description": "release tag `curl-8_4_0`",
+          "path": null,
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": "https://github.com/curl/curl/releases/tag/curl-8_4_0"
+        }
+      ]
+    },
+    {
+      "id": "version.release",
+      "title": "25 newer releases existed when this was reported (latest 8.23.0); it may already be fixed",
+      "status": "info",
+      "signal": "neutral",
+      "strength": 0.0,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": []
+    },
+    {
+      "id": "repro.sandbox",
+      "title": "Dynamic reproduction not run",
+      "status": "skipped",
+      "signal": "neutral",
+      "strength": 0.0,
+      "detail": "No Docker sandbox for this run (disabled or Docker unavailable)",
+      "claim_ids": [],
+      "evidence": []
+    }
+  ],
+  "completeness": {
+    "present": [
+      "steps_to_reproduce",
+      "version",
+      "logs"
+    ],
+    "missing": [
+      "expected_behavior",
+      "actual_behavior",
+      "environment",
+      "code_sample"
+    ],
+    "score": 0.5
+  },
+  "assessment": {
+    "verdict": "likely_invalid",
+    "confidence": "high",
+    "score": -2.35,
+    "reasons": [
+      "Strong contradicting evidence: 2 check(s) contradict the report (strongest 0.80, total 2.60).",
+      "-0.80 grounding.symbol: `curl_easy_setopt_safe` is not defined or referenced anywhere in the repository at `a133b27`",
+      "-0.75 grounding.line: `lib/easy.c` has 1,480 lines, but the report cites line 3,412",
+      "-0.65 trace.frames: Stack trace does not match the code at `a133b27`: 2 of 2 frames point at the wrong lines or functions",
+      "-0.30 grounding.file: No file `lib/transfer_safe.c` exists in the repository at `a133b27`",
+      "-0.30 grounding.symbol: `Curl_follow_redirect_copy` was not found in the repository at `a133b27`; it may come from a dependency"
+    ]
+  },
+  "missing_information": [
+    "What you expected to happen vs. what happened",
+    "Your environment (OS, runtime version)",
+    "A minimal code sample or command that reproduces it",
+    "More detail to verify claim C6: “Remote code execution in every application using libcurl 8.4.0 with redirects enabled.”"
+  ],
+  "next_steps": [
+    "Ask the reporter where `curl_easy_setopt_safe` comes from: `curl_easy_setopt_safe` is not defined or referenced anywhere in the repository at `a133b27` (checked at `a133b27`)",
+    "Ask the reporter where `lib/easy.c` comes from: `lib/easy.c` has 1,480 lines, but the report cites line 3,412 (checked at `a133b27`)",
+    "Ask the reporter where `a133b27` comes from: Stack trace does not match the code at `a133b27`: 2 of 2 frames point at the wrong lines or functions (checked at `a133b27`)",
+    "Wait for the reporter's answer before deciding; a maintainer should confirm before closing or labelling anything."
+  ],
+  "limitations": [
+    "Sandbox unavailable: the Docker daemon is not reachable: failed to connect to the docker API at unix://~/.docker/run/docker.sock; check if the path is correc...",
+    "Dynamic reproduction not run: skipped (No Docker sandbox for this run (disabled or Docker unavailable))",
+    "LLM judgements come from a small local model and are advisory (never high confidence on their own)",
+    "Evidence is pinned to commit a133b27d0779fd6f74127139231efa456fdd2b44"
+  ],
+  "timings": {
+    "extract": 0.003,
+    "claims": 30.062,
+    "verify": 2.175,
+    "reproduce": 0.0,
+    "judge": 30.767
+  }
+}

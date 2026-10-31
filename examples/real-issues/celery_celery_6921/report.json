@@ -1,0 +1,613 @@
+{
+  "schema_version": "1",
+  "nomi_version": "0.1.0",
+  "kind": "issue",
+  "repo": "celery/celery",
+  "number": 6921,
+  "url": "https://github.com/celery/celery/issues/6921",
+  "title": "run celery 5.1.2 in docker python3.8.2 failed",
+  "commit": "16959cdb895b187265745d19a212ca0844c6dd78",
+  "analyzed_at": "2026-10-31T22:38:27.942352Z",
+  "model": "qwen3:4b-instruct-2507-q4_K_M",
+  "summary": "Checked 6 claims: 2 supported, 4 unverified. Top finding: Stack trace matches the code at `16959cd`: 3 frames point at real lines inside the named functions.",
+  "claims": [
+    {
+      "claim": {
+        "id": "C1",
+        "text": "run celery 5.1.2 in docker python3.8.2 failed",
+        "type": "environment",
+        "quote": "run celery 5.1.2 in docker python3.8.2 failed",
+        "entities": [
+          "docker",
+          "python3.8.2"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim.",
+      "evidence": [],
+      "method": "none"
+    },
+    {
+      "claim": {
+        "id": "C2",
+        "text": "when I run  celery 5.1.2 in docker python3.8.2 has come error",
+        "type": "behavior",
+        "quote": "when I run  celery 5.1.2 in docker python3.8.2 has come error",
+        "entities": [
+          "celery 5.1.2",
+          "python3.8.2",
+          "docker"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim. Model note: Model found the evidence insufficient: The claim describes an error occurring when running celery 5.1.2 in a Docker container with Python 3.8.2, but none of the provided evidence directly addresses the behavior of celery running in a Docker container, nor does it mention any error, version compatibility, or Python 3.8.2-specific issues. While E2 and E3 describe the setup of Python versions and Docker development workflows, they do not confirm or deny the occurrence of an error when running celery 5.1.2 with Python 3.8.2. There is no….",
+      "evidence": [],
+      "method": "llm"
+    },
+    {
+      "claim": {
+        "id": "C3",
+        "text": "File \"/usr/local/lib/python3.8/site-packages/celery/bin/celery.py\", line 213",
+        "type": "location",
+        "quote": "File \"/usr/local/lib/python3.8/site-packages/celery/bin/celery.py\", line 213",
+        "entities": [
+          "/usr/local/lib/python3.8/site-packages/celery/bin/celery.py",
+          "line 213"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "supported",
+      "confidence": "low",
+      "rationale": "Only partly verified: the referenced code exists (`celery` is defined at `celery/bin/celery.py:121`)",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "celery/bin/celery.py",
+          "line_start": 121,
+          "line_end": 121,
+          "excerpt": "121 | def celery(ctx, app, broker, result_backend, loader, config, workdir,",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/bin/celery.py#L121"
+        }
+      ],
+      "method": "deterministic"
+    },
+    {
+      "claim": {
+        "id": "C4",
+        "text": "File \"/usr/local/lib/python3.8/site-packages/click/core.py\", line 1137",
+        "type": "location",
+        "quote": "File \"/usr/local/lib/python3.8/site-packages/click/core.py\", line 1137",
+        "entities": [
+          "/usr/local/lib/python3.8/site-packages/click/core.py",
+          "line 1137"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim. Model note: Model found the evidence insufficient: The claim provided is located in a Python file path (click/core.py, line 1137), but no evidence in the provided blocks relates to this specific file or line. The evidence blocks cover Django management scripts, Dockerfiles, zsh completion, and documentation, none of which discuss or confirm any behavior in click.core.py. Therefore, there is no relevant code evidence to support, contradict, or evaluate the claim.",
+      "evidence": [],
+      "method": "llm"
+    },
+    {
+      "claim": {
+        "id": "C5",
+        "text": "AttributeError: 'int' object has no attribute 'upper'",
+        "type": "code_fact",
+        "quote": "AttributeError: 'int' object has no attribute 'upper'",
+        "entities": [
+          "AttributeError",
+          "int",
+          "upper"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "supported",
+      "confidence": "low",
+      "rationale": "Only partly verified: the referenced code exists (Error text is produced by `celery/utils/collections.py:115`)",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "error raised here",
+          "path": "celery/utils/collections.py",
+          "line_start": 115,
+          "line_end": 115,
+          "excerpt": "114 |             raise AttributeError(\n115 |                 f'{type(self).__name__!r} object has no attribute {k!r}')\n116 | ",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/utils/collections.py#L115"
+        },
+        {
+          "kind": "code",
+          "description": "error raised here",
+          "path": "celery/utils/collections.py",
+          "line_start": 115,
+          "line_end": 115,
+          "excerpt": "114 |             raise AttributeError(\n115 |                 f'{type(self).__name__!r} object has no attribute {k!r}')\n116 | ",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/utils/collections.py#L115"
+        }
+      ],
+      "method": "deterministic"
+    },
+    {
+      "claim": {
+        "id": "C6",
+        "text": "but when I rollback the python version use 3.7.10, the celery run success",
+        "type": "behavior",
+        "quote": "but when I rollback the python version use 3.7.10, the celery run success",
+        "entities": [
+          "celery run success"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim.",
+      "evidence": [],
+      "method": "none"
+    }
+  ],
+  "checks": [
+    {
+      "id": "grounding.symbol",
+      "title": "`main` is defined at `celery/__main__.py:10` (and 3 more)",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.15,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "celery/__main__.py",
+          "line_start": 10,
+          "line_end": 10,
+          "excerpt": "10 | def main():",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/__main__.py#L10"
+        },
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "celery/bin/celery.py",
+          "line_start": 206,
+          "line_end": 206,
+          "excerpt": "206 | def main() -> int:",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/bin/celery.py#L206"
+        },
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "celery/bin/multi.py",
+          "line_start": 139,
+          "line_end": 139,
+          "excerpt": "139 | def main():",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/bin/multi.py#L139"
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`_main` is referenced (e.g. `celery/__main__.py:14`) but not defined in the repository",
+      "status": "info",
+      "signal": "neutral",
+      "strength": 0.05,
+      "detail": "It is probably defined by a dependency, generated code or a macro.",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "reference",
+          "path": "celery/__main__.py",
+          "line_start": 14,
+          "line_end": 14,
+          "excerpt": "14 |     from celery.bin.celery import main as _main",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/__main__.py#L14"
+        },
+        {
+          "kind": "code",
+          "description": "reference",
+          "path": "celery/__main__.py",
+          "line_start": 15,
+          "line_end": 15,
+          "excerpt": "15 |     sys.exit(_main())",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/__main__.py#L15"
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`celery` is defined at `celery/bin/celery.py:121`",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.15,
+      "detail": "",
+      "claim_ids": [
+        "C1",
+        "C2",
+        "C3",
+        "C6"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "celery/bin/celery.py",
+          "line_start": 121,
+          "line_end": 121,
+          "excerpt": "121 | def celery(ctx, app, broker, result_backend, loader, config, workdir,",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/bin/celery.py#L121"
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`param.handle_parse_result` was not found in the repository at `16959cd`; it may come from a dependency",
+      "status": "warn",
+      "signal": "contradicts",
+      "strength": 0.3,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": []
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`convert` is defined at `celery/bin/base.py:193` (and 4 more)",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.15,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "celery/bin/base.py",
+          "line_start": 193,
+          "line_end": 193,
+          "excerpt": "193 |     def convert(self, value, param, ctx):",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/bin/base.py#L193"
+        },
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "celery/bin/base.py",
+          "line_start": 202,
+          "line_end": 202,
+          "excerpt": "202 |     def convert(self, value, param, ctx):",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/bin/base.py#L202"
+        },
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "celery/bin/base.py",
+          "line_start": 222,
+          "line_end": 222,
+          "excerpt": "222 |     def convert(self, value, param, ctx):",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/bin/base.py#L222"
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`value.upper` is referenced (e.g. `bandit.json:2291`) but not defined in the repository",
+      "status": "info",
+      "signal": "neutral",
+      "strength": 0.05,
+      "detail": "It is probably defined by a dependency, generated code or a macro.",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "reference",
+          "path": "bandit.json",
+          "line_start": 2291,
+          "line_end": 2291,
+          "excerpt": "2291 |       \"code\": \"169                 return self.win.getkey().upper()\\n170             except Exception:  # pylint: disable=broad-except\\n171                 pass\\n\",",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/bandit.json#L2291"
+        },
+        {
+          "kind": "code",
+          "description": "reference",
+          "path": "bandit.json",
+          "line_start": 2361,
+          "line_end": 2361,
+          "excerpt": "2361 |       \"code\": \"14     \\\"\\\"\\\"Convert string to hash object of cryptography library.\\\"\\\"\\\"\\n15     assert digest is not None\\n16     return getattr(hashes, digest.upper())()\\n\",",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/bandit.json#L2361"
+        },
+        {
+          "kind": "code",
+          "description": "reference",
+          "path": "celery/__init__.py",
+          "line_start": 66,
+          "line_end": 66,
+          "excerpt": "66 | globals()['kcah_acitats'[::-1].upper()] = False",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/__init__.py#L66"
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`config.celery_config.get` is defined at `celery/app/task.py:106` (and 4 more)",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.15,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "celery/app/task.py",
+          "line_start": 106,
+          "line_end": 106,
+          "excerpt": "106 |     def get(self, key, default=None):",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/app/task.py#L106"
+        },
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "celery/backends/arangodb.py",
+          "line_start": 120,
+          "line_end": 120,
+          "excerpt": "120 |     def get(self, key):",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/backends/arangodb.py#L120"
+        },
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "celery/backends/azureblockblob.py",
+          "line_start": 76,
+          "line_end": 76,
+          "excerpt": "76 |     def get(self, key):",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/backends/azureblockblob.py#L76"
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`timedelta` is referenced (e.g. `celery/app/amqp.py:5`) but not defined in the repository",
+      "status": "info",
+      "signal": "neutral",
+      "strength": 0.05,
+      "detail": "It is probably defined by a dependency, generated code or a macro.",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "reference",
+          "path": "celery/app/amqp.py",
+          "line_start": 5,
+          "line_end": 5,
+          "excerpt": "5 | from datetime import timedelta",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/app/amqp.py#L5"
+        },
+        {
+          "kind": "code",
+          "description": "reference",
+          "path": "celery/app/amqp.py",
+          "line_start": 299,
+          "line_end": 299,
+          "excerpt": "299 |                 now + timedelta(seconds=countdown), tz=timezone,",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/app/amqp.py#L299"
+        },
+        {
+          "kind": "code",
+          "description": "reference",
+          "path": "celery/app/amqp.py",
+          "line_start": 306,
+          "line_end": 306,
+          "excerpt": "306 |                 now + timedelta(seconds=expires), tz=timezone,",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/app/amqp.py#L306"
+        }
+      ]
+    },
+    {
+      "id": "grounding.error_message",
+      "title": "Error text is produced by `celery/utils/collections.py:115`",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.35,
+      "detail": "`object has no attribute` appears verbatim in the code.",
+      "claim_ids": [
+        "C5"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "error raised here",
+          "path": "celery/utils/collections.py",
+          "line_start": 115,
+          "line_end": 115,
+          "excerpt": "114 |             raise AttributeError(\n115 |                 f'{type(self).__name__!r} object has no attribute {k!r}')\n116 | ",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/utils/collections.py#L115"
+        }
+      ]
+    },
+    {
+      "id": "grounding.error_message",
+      "title": "Error text is produced by `celery/utils/collections.py:115`",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.35,
+      "detail": "`object has no attribute` appears verbatim in the code.",
+      "claim_ids": [
+        "C5"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "error raised here",
+          "path": "celery/utils/collections.py",
+          "line_start": 115,
+          "line_end": 115,
+          "excerpt": "114 |             raise AttributeError(\n115 |                 f'{type(self).__name__!r} object has no attribute {k!r}')\n116 | ",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/utils/collections.py#L115"
+        }
+      ]
+    },
+    {
+      "id": "trace.frames",
+      "title": "Stack trace matches the code at `16959cd`: 3 frames point at real lines inside the named functions",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.55,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "frame in `main`",
+          "path": "celery/__main__.py",
+          "line_start": 15,
+          "line_end": 15,
+          "excerpt": "14 |     from celery.bin.celery import main as _main\n15 |     sys.exit(_main())\n16 | ",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/__main__.py#L15"
+        },
+        {
+          "kind": "code",
+          "description": "frame in `main`",
+          "path": "celery/bin/celery.py",
+          "line_start": 213,
+          "line_end": 213,
+          "excerpt": "212 |     \"\"\"\n213 |     return celery(auto_envvar_prefix=\"CELERY\")",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/bin/celery.py#L213"
+        },
+        {
+          "kind": "code",
+          "description": "frame in `convert`",
+          "path": "celery/bin/base.py",
+          "line_start": 245,
+          "line_end": 245,
+          "excerpt": "244 |             return maybe_iso8601(value)\n245 |         except (TypeError, ValueError) as e:\n246 |             self.fail(e)",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/celery/bin/base.py#L245"
+        }
+      ]
+    },
+    {
+      "id": "quote.code",
+      "title": "Quoted code only partly matches the repository (3/15 lines found)",
+      "status": "warn",
+      "signal": "neutral",
+      "strength": 0.15,
+      "detail": "It may be adapted from the project, simplified, or from another version.",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "doc",
+          "description": "matching line",
+          "path": "docs/userguide/configuration.rst",
+          "line_start": 1102,
+          "line_end": 1102,
+          "excerpt": "1102 |     mongodb_backend_settings = {",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/docs/userguide/configuration.rst#L1102"
+        },
+        {
+          "kind": "doc",
+          "description": "matching line",
+          "path": "docs/userguide/optimizing.rst",
+          "line_start": 179,
+          "line_end": 179,
+          "excerpt": "179 |     task_acks_late = True",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/docs/userguide/optimizing.rst#L179"
+        },
+        {
+          "kind": "test",
+          "description": "matching line",
+          "path": "t/unit/app/test_app.py",
+          "line_start": 88,
+          "line_end": 88,
+          "excerpt": "88 |         self.app.conf.enable_utc = False",
+          "url": "https://github.com/celery/celery/blob/16959cdb895b187265745d19a212ca0844c6dd78/t/unit/app/test_app.py#L88"
+        }
+      ]
+    },
+    {
+      "id": "version.release",
+      "title": "5.1.2 is a real release (tag v5.1.2)",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.1,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "history",
+          "description": "release tag `v5.1.2`",
+          "path": null,
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": "https://github.com/celery/celery/releases/tag/v5.1.2"
+        }
+      ]
+    },
+    {
+      "id": "repro.sandbox",
+      "title": "Dynamic reproduction not run",
+      "status": "skipped",
+      "signal": "neutral",
+      "strength": 0.0,
+      "detail": "No Docker sandbox for this run (disabled or Docker unavailable)",
+      "claim_ids": [],
+      "evidence": []
+    }
+  ],
+  "completeness": {
+    "present": [
+      "steps_to_reproduce",
+      "actual_behavior",
+      "version",
+      "environment",
+      "logs",
+      "code_sample"
+    ],
+    "missing": [
+      "expected_behavior"
+    ],
+    "score": 0.9
+  },
+  "assessment": {
+    "verdict": "likely_valid",
+    "confidence": "medium",
+    "score": 1.35,
+    "reasons": [
+      "Supporting evidence outweighs contradicting evidence (score +1.35).",
+      "+0.55 trace.frames: Stack trace matches the code at `16959cd`: 3 frames point at real lines inside the named functions",
+      "+0.35 grounding.error_message: Error text is produced by `celery/utils/collections.py:115`",
+      "+0.35 grounding.error_message: Error text is produced by `celery/utils/collections.py:115`",
+      "-0.30 grounding.symbol: `param.handle_parse_result` was not found in the repository at `16959cd`; it may come from a dependency",
+      "+0.15 grounding.symbol: `main` is defined at `celery/__main__.py:10` (and 3 more)"
+    ]
+  },
+  "missing_information": [
+    "What you expected to happen vs. what happened"
+  ],
+  "next_steps": [
+    "Start from `celery/__main__.py:15` (Stack trace matches the code at `16959cd`: 3 frames point at real lines inside the named functions)",
+    "Start from `celery/bin/celery.py:213` (Stack trace matches the code at `16959cd`: 3 frames point at real lines inside the named functions)",
+    "Double-check claim C1 by hand; it could not be verified: “run celery 5.1.2 in docker python3.8.2 failed”",
+    "Double-check claim C2 by hand; it could not be verified: “when I run celery 5.1.2 in docker python3.8.2 has come error”"
+  ],
+  "limitations": [
+    "Dynamic reproduction not run: skipped (No Docker sandbox for this run (disabled or Docker unavailable))",
+    "LLM judgements come from a small local model and are advisory (never high confidence on their own)",
+    "Evidence is pinned to commit 16959cdb895b187265745d19a212ca0844c6dd78"
+  ],
+  "timings": {
+    "extract": 0.007,
+    "claims": 0.018,
+    "verify": 1.113,
+    "reproduce": 0.0,
+    "judge": 0.579
+  }
+}

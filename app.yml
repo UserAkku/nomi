@@ -1,0 +1,36 @@
+# GitHub App manifest for Nomi (Probot-style app.yml).
+#
+# Register the App from this file with GitHub's manifest flow, or copy the
+# values into Settings -> Developer settings -> GitHub Apps -> New GitHub App.
+# Permissions are the minimum Nomi needs: it reads what reporters wrote and the
+# repository code, and writes exactly one comment per issue or pull request.
+
+name: nomi-triage
+description: >-
+  Evidence-based triage for issues and pull requests. Nomi checks the technical
+  claims in a report (files, symbols, stack traces, versions, reproduction
+  steps) against the repository and posts one comment with verifiable evidence.
+url: https://github.com/UserAkku/nomi
+
+hook_attributes:
+  # Where GitHub delivers webhooks. Replace with your server's public
+  # /webhook URL, or a smee.io channel forwarding to it during development.
+  url: https://smee.io/your-channel
+
+# Private: only the account that registers the App can install it.
+public: false
+
+default_events:
+  - issues          # new and reopened issues are triaged
+  - issue_comment   # "/nomi" from a maintainer re-runs the triage
+  - pull_request    # new, updated and ready-for-review pull requests are triaged
+
+default_permissions:
+  # Read issue text and post/update Nomi's single report comment on issues.
+  issues: write
+  # Read pull request metadata and changed files, and comment on pull requests.
+  pull_requests: write
+  # Clone the repository and read the code that the claims are checked against.
+  contents: read
+  # Mandatory for every GitHub App: basic repository metadata.
+  metadata: read
