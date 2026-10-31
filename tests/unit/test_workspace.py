@@ -138,3 +138,41 @@ def test_rejects_bad_repo_names(tmp_path):
         open_github_workspace("not a repo", cache_dir=tmp_path)
     with pytest.raises(ValueError):
         open_github_workspace("../../etc", cache_dir=tmp_path)
+
+
+def test_each_commit_gets_its_own_worktree(make_repo, tmp_path):
+    ws = make_repo({"a.py": "v = 1\n"}, name="upstream2")
+    first = git(ws.root, "rev-parse", "HEAD").strip()
+    (ws.root / "a.py").write_text("v = 2\n")
+    git(ws.root, "commit", "-qam", "second")
+    cache = tmp_path / "cache2"
+    old = open_github_workspace("acme/up2", cache_dir=cache, ref=first, remote_url=str(ws.root))
+    new = open_github_workspace("acme/up2", cache_dir=cache, remote_url=str(ws.root))
+    assert old.root != new.root
+    # opening the newer commit must not change what the older workspace reads
+    assert old.read_text("a.py") == "v = 1\n"
+    assert new.read_text("a.py") == "v = 2\n"
+
+
+def test_worktrees_are_pruned(make_repo, tmp_path):
+    ws = make_repo({"a.py": "v = 0\n"}, name="upstream3")
+    shas = []
+    for i in range(4):
+        (ws.root / "a.py").write_text(f"v = {i + 1}\n")
+        git(ws.root, "commit", "-qam", f"c{i}")
+        shas.append(git(ws.root, "rev-parse", "HEAD").strip())
+    cache = tmp_path / "cache3"
+    for sha in shas:
+        open_github_workspace(
+            "acme/up3", cache_dir=cache, ref=sha, remote_url=str(ws.root), keep_worktrees=2
+        )
+    assert len(list((cache / "repos" / "worktrees").glob("acme__up3@*"))) == 2
+
+
+@pytest.mark.parametrize("ref", ["--upload-pack=evil", "-x", "a b", "HEAD;rm"])
+def test_rejects_option_like_refs(make_repo, tmp_path, ref):
+    ws = make_repo({"a.py": "x = 1\n"}, name="upstream4")
+    with pytest.raises(ValueError):
+        open_github_workspace(
+            "acme/up4", cache_dir=tmp_path / "c4", ref=ref, remote_url=str(ws.root)
+        )

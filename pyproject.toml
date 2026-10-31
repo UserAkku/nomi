@@ -49,6 +49,11 @@ packages = ["src/nomi"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers -p no:cacheprovider"
+filterwarnings = [
+  # starlette's TestClient nags about httpx; irrelevant to our code
+  "ignore::DeprecationWarning:fastapi.testclient",
+  "ignore:Using `httpx` with `starlette.testclient`",
+]
 markers = [
   "docker: needs a running Docker daemon (skipped automatically when absent)",
   "ollama: needs a running Ollama server with the configured model (skipped automatically when absent)",
@@ -62,6 +67,8 @@ branch = true
 line-length = 100
 target-version = "py311"
 src = ["src", "tests"]
+# example inputs are reporters' code, not ours
+extend-exclude = ["examples/*/repo"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]

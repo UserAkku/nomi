@@ -1,0 +1,510 @@
+"""Tests for rendering reports as GitHub comments and JSON."""
+
+from __future__ import annotations
+
+import re
+from datetime import UTC, datetime
+
+import pytest
+
+from nomi import __version__
+from nomi.models import (
+    REPORT_MARKER,
+    Assessment,
+    Check,
+    CheckStatus,
+    Claim,
+    ClaimAssessment,
+    Completeness,
+    Confidence,
+    Evidence,
+    EvidenceKind,
+    Kind,
+    OverallVerdict,
+    Report,
+    Section,
+    Signal,
+    Verdict,
+)
+from nomi.repo.workspace import Workspace
+from nomi.report import DISCLAIMER, render_json, render_markdown
+
+SHA = "abc1234def5678abc1234def5678abc1234def56"
+UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
+
+
+def ev(path: str = "src/widget/parser.py", start: int = 8, end: int | None = 9) -> Evidence:
+    suffix = f"#L{start}" + (f"-L{end}" if end and end != start else "")
+    return Evidence(
+        kind=EvidenceKind.CODE,
+        description="code",
+        path=path,
+        line_start=start,
+        line_end=end,
+        url=f"https://github.com/acme/widget/blob/{SHA}/{path}{suffix}",
+    )
+
+
+def claim_result(
+    id: str = "C1",
+    text: str = "`parse_url` raises ValueError on empty input",
+    verdict: Verdict = Verdict.SUPPORTED,
+    *,
+    evidence: list[Evidence] | None = None,
+    rationale: str = "Found the raise.",
+    method: str = "deterministic",
+) -> ClaimAssessment:
+    return ClaimAssessment(
+        claim=Claim(id=id, text=text),
+        verdict=verdict,
+        confidence=Confidence.MEDIUM,
+        rationale=rationale,
+        evidence=evidence if evidence is not None else [ev()],
+        method=method,
+    )
+
+
+def make_report(**overrides) -> Report:
+    fields = {
+        "nomi_version": __version__,
+        "kind": Kind.ISSUE,
+        "repo": "acme/widget",
+        "number": 7,
+        "url": "https://github.com/acme/widget/issues/7",
+        "title": "parse_url crashes",
+        "commit": SHA,
+        "analyzed_at": datetime(2026, 11, 1, 12, 0, tzinfo=UTC),
+        "model": None,
+        "summary": "Checked 1 claim: 1 supported.",
+        "claims": [claim_result()],
+        "checks": [
+            Check(
+                id="grounding.symbol",
+                title="Symbol `parse_url` exists",
+                status=CheckStatus.PASS,
+                signal=Signal.SUPPORTS,
+                strength=0.5,
+                detail="Defined in parser.py",
+                claim_ids=["C1"],
+                evidence=[ev()],
+            ),
+            Check(id="docs.x", title="Docs mismatch", status=CheckStatus.FAIL),
+            Check(id="completeness.v", title="No version", status=CheckStatus.WARN),
+            Check(
+                id="repro.sandbox",
+                title="Reproduce in sandbox",
+                status=CheckStatus.SKIPPED,
+                detail="Docker is not available",
+            ),
+            Check(id="info.lang", title="Python project", status=CheckStatus.INFO),
+        ],
+        "completeness": Completeness(present=[Section.LOGS], missing=[Section.VERSION], score=0.5),
+        "assessment": Assessment(
+            verdict=OverallVerdict.LIKELY_VALID,
+            confidence=Confidence.MEDIUM,
+            score=1.2,
+            reasons=["Supporting evidence outweighs contradicting evidence (score +1.20)."],
+        ),
+        "missing_information": ["The exact version where this happens"],
+        "next_steps": ["Start from `src/widget/parser.py:8` (raise on empty url)"],
+        "limitations": ["No language model was used (deterministic checks only)"],
+    }
+    fields.update(overrides)
+    return Report(**fields)
+
+
+def table_rows(markdown: str, header: str) -> list[str]:
+    lines = markdown.splitlines()
+    start = lines.index(header)
+    rows = []
+    for line in lines[start + 2 :]:
+        if not line.startswith("|"):
+            break
+        rows.append(line)
+    return rows
+
+
+# --------------------------------------------------------------------------
+# Structure
+# --------------------------------------------------------------------------
+
+
+class TestStructure:
+    def test_layout(self) -> None:
+        md = render_markdown(make_report())
+        lines = md.splitlines()
+        assert lines[0] == REPORT_MARKER
+        assert lines[1] == "### Nomi evidence report"
+        assert "**🟩 Likely valid** · medium confidence · score +1.20" in md
+        assert f"_{DISCLAIMER}_" in md
+        assert "Checked 1 claim: 1 supported." in md
+        assert (
+            f"Analysed commit [`abc1234`](https://github.com/acme/widget/commit/{SHA}) · "
+            "deterministic checks only"
+        ) in md
+        assert "#### Missing information\n\n- The exact version where this happens" in md
+        assert "#### Suggested next steps\n\n- Start from `src/widget/parser.py:8`" in md
+        assert "#### Limitations & uncertainty" in md
+        assert md.rstrip().endswith(
+            f"<sub>Generated by Nomi v{__version__} · reproduce locally: "
+            "`nomi analyze https://github.com/acme/widget/issues/7`</sub>"
+        )
+        assert "truncated" not in md
+        assert md.count("<details>") == md.count("</details>") == 3
+        order = [
+            "### Nomi evidence report",
+            "#### Claims",
+            "#### Missing information",
+            "#### Suggested next steps",
+            "<details><summary>Checks performed",
+            "#### Limitations & uncertainty",
+            "Generated by Nomi",
+        ]
+        positions = [md.index(part) for part in order]
+        assert positions == sorted(positions)
+
+    @pytest.mark.parametrize(
+        ("verdict", "badge"),
+        [
+            (OverallVerdict.LIKELY_INVALID, "🟥 Likely invalid"),
+            (OverallVerdict.LIKELY_VALID, "🟩 Likely valid"),
+            (OverallVerdict.NEEDS_INFO, "🟨 Needs more information"),
+            (OverallVerdict.INCONCLUSIVE, "⬜ Inconclusive"),
+        ],
+    )
+    @pytest.mark.parametrize("confidence", list(Confidence))
+    def test_every_verdict(
+        self, verdict: OverallVerdict, badge: str, confidence: Confidence
+    ) -> None:
+        report = make_report(
+            assessment=Assessment(verdict=verdict, confidence=confidence, score=-0.8)
+        )
+        md = render_markdown(report)
+        assert f"**{badge}** · {confidence.value} confidence · score -0.80" in md
+
+    def test_model_and_pull_request_target(self) -> None:
+        md = render_markdown(
+            make_report(
+                model="qwen3:4b-instruct-2507-q4_K_M",
+                kind=Kind.PULL_REQUEST,
+                url=None,
+                number=12,
+            )
+        )
+        assert "· model `qwen3:4b-instruct-2507-q4_K_M`" in md
+        assert "`nomi analyze https://github.com/acme/widget/pull/12`" in md
+
+    def test_missing_commit_url_and_number(self) -> None:
+        md = render_markdown(make_report(commit=None, url=None, number=None))
+        assert "No commit pinned · deterministic checks only" in md
+        assert "`nomi analyze acme/widget`" in md
+
+    def test_odd_commit_is_not_linked(self) -> None:
+        md = render_markdown(make_report(commit="main`) [x](https://evil.example)"))
+        assert "Analysed commit \\`main\\`) \\[x\\](https://evil.example)\\`" in md
+        assert "[x](" not in md
+        assert "/commit/main" not in md
+
+    def test_claims_table(self) -> None:
+        claims = [
+            claim_result("C1", evidence=[ev(start=1, end=1), ev(start=2), ev(start=5)]),
+            claim_result("C2", "It is broken", Verdict.CONTRADICTED, evidence=[]),
+            claim_result("C3", "x", Verdict.UNVERIFIED, method="none"),
+            claim_result("C4", "y", Verdict.NEEDS_INFO, method="llm"),
+        ]
+        md = render_markdown(make_report(claims=claims))
+        rows = table_rows(md, "| # | Claim | Verdict | Evidence |")
+        assert len(rows) == 4
+        assert rows[0] == (
+            "| C1 | `parse_url` raises ValueError on empty input | ✅ supported · medium | "
+            f"[src/widget/parser.py#L1](https://github.com/acme/widget/blob/{SHA}/"
+            "src/widget/parser.py#L1), "
+            f"[src/widget/parser.py#L2-L9](https://github.com/acme/widget/blob/{SHA}/"
+            "src/widget/parser.py#L2-L9) +1 more |"
+        )
+        assert rows[1] == "| C2 | It is broken | ❌ contradicted · medium | — |"
+        assert "❔ unverified" in rows[2]
+        assert "📝 needs info" in rows[3]
+        assert "- **C1** (repository check): Found the raise." in md
+        assert "- **C4** (language model, advisory): Found the raise." in md
+
+    def test_no_claims(self) -> None:
+        md = render_markdown(make_report(claims=[]))
+        assert "_No checkable claims were extracted._" in md
+        assert "Why each claim" not in md
+
+    def test_checks_table(self) -> None:
+        md = render_markdown(make_report())
+        assert (
+            "<details><summary>Checks performed (5: 1 passed, 1 failed, 1 warnings, 1 skipped)"
+            "</summary>"
+        ) in md
+        rows = table_rows(md, "| Check | Result | Detail |")
+        assert [row.split(" | ")[1] for row in rows] == [
+            "❌ fail",
+            "⚠️ warning",
+            "✅ pass · +0.50",
+            "⏭️ skipped",
+            "ℹ️ info",
+        ]
+        assert rows[2].startswith("| Symbol `parse_url` exists `grounding.symbol` |")
+        assert "Defined in parser.py · [src/widget/parser.py#L8-L9](" in rows[2]
+        assert rows[3].endswith("| Docker is not available |")
+        assert rows[0].endswith("| — |")
+
+    def test_no_checks(self) -> None:
+        md = render_markdown(make_report(checks=[]))
+        assert "Checks performed (0: 0 passed, 0 failed, 0 warnings, 0 skipped)" in md
+        assert "No checks were run." in md
+
+    def test_empty_sections_are_omitted(self) -> None:
+        md = render_markdown(
+            make_report(
+                missing_information=[],
+                next_steps=[],
+                limitations=[],
+                assessment=Assessment(
+                    verdict=OverallVerdict.INCONCLUSIVE, confidence=Confidence.LOW
+                ),
+            )
+        )
+        assert "#### Missing information" not in md
+        assert "#### Suggested next steps" not in md
+        assert "#### Limitations" not in md
+        assert "How the verdict was reached" not in md
+
+    def test_real_workspace_permalinks(self, sample_repo: Workspace) -> None:
+        path = "src/widget/net.py"
+        evidence = Evidence(
+            kind=EvidenceKind.CODE,
+            description="default timeout",
+            path=path,
+            line_start=5,
+            line_end=5,
+            excerpt=sample_repo.excerpt(path, 5),
+            url=sample_repo.permalink(path, 5),
+        )
+        report = make_report(
+            commit=sample_repo.commit,
+            claims=[claim_result(text="Default timeout is 10", evidence=[evidence])],
+        )
+        md = render_markdown(report)
+        assert f"[src/widget/net.py#L5]({sample_repo.permalink(path, 5)})" in md
+        assert f"[`{(sample_repo.commit or '')[:7]}`]" in md
+
+
+# --------------------------------------------------------------------------
+# Escaping of user-controlled text
+# --------------------------------------------------------------------------
+
+
+class TestEscaping:
+    def hostile(self, text: str) -> str:
+        report = make_report(
+            title=text,
+            summary=text,
+            claims=[claim_result(text=text, rationale=text)],
+            checks=[Check(id="x.y", title=text, status=CheckStatus.FAIL, detail=text)],
+            missing_information=[text],
+            next_steps=[text],
+            limitations=[text],
+            assessment=Assessment(
+                verdict=OverallVerdict.LIKELY_INVALID, confidence=Confidence.LOW, reasons=[text]
+            ),
+        )
+        return render_markdown(report)
+
+    def test_pipes_do_not_break_tables(self) -> None:
+        md = self.hostile("a | b || c")
+        for header, columns in (
+            ("| # | Claim | Verdict | Evidence |", 4),
+            ("| Check | Result | Detail |", 3),
+        ):
+            for row in table_rows(md, header):
+                assert len(UNESCAPED_PIPE.findall(row)) == columns + 1
+        assert "a \\| b \\|\\| c" in md
+
+    def test_mentions_are_neutralized(self) -> None:
+        md = self.hostile("cc @octocat and @acme/maintainers, mail me at dev@example.com")
+        assert not re.search(r"(?<![\w\u200b])@[A-Za-z]", md)
+        assert "@\u200boctocat" in md
+        assert "@\u200bacme/maintainers" in md
+        assert "dev@example.com" in md
+
+    def test_html_is_escaped(self) -> None:
+        md = self.hostile("<script>alert(1)</script></details><img src=x onerror=alert(1)> & co")
+        assert "<script>" not in md
+        assert "<img" not in md
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in md
+        assert "&amp; co" in md
+        assert md.count("<details>") == md.count("</details>")
+
+    def test_marker_cannot_be_spoofed(self) -> None:
+        md = self.hostile(f"{REPORT_MARKER} -->")
+        assert md.count(REPORT_MARKER) == 1
+        assert md.startswith(REPORT_MARKER)
+
+    def test_newlines_are_collapsed(self) -> None:
+        text = "first line\r\nsecond\rthird\n\n# Heading\u2028fourth\x00\x1b[31m"
+        md = self.hostile(text)
+        for row in table_rows(md, "| # | Claim | Verdict | Evidence |"):
+            assert "first line second third # Heading fourth" in row
+        assert "\r" not in md and "\x00" not in md and "\x1b" not in md
+        assert "\n# Heading" not in md
+
+    def test_links_and_images_are_not_injected(self) -> None:
+        md = self.hostile("[click me](https://evil.example) ![pixel](https://evil.example/p.png)")
+        assert "[click me](" not in md
+        assert "![pixel](" not in md
+        assert "\\[click me\\](https://evil.example)" in md
+
+    def test_block_syntax_is_neutralized_at_line_start(self) -> None:
+        for text, expected in (
+            ("# Pwned", "- \\# Pwned"),
+            ("1. ordered", "- 1\\. ordered"),
+            ("- nested", "- \\- nested"),
+            ("```python", "- \\`\\`\\`python"),
+            ("> quote", "- &gt; quote"),
+        ):
+            assert expected in self.hostile(text).splitlines()
+
+    def test_code_spans_survive_but_cannot_smuggle_html(self) -> None:
+        md = self.hostile("calls `parse_url` then `<b>bold</b>` then `a|b` and a stray ` tick")
+        assert "calls `parse_url` then" in md
+        assert "<b>" not in md
+        assert "\\`&lt;b&gt;bold&lt;/b&gt;\\`" in md
+        assert "\\`a\\|b\\`" in md
+        assert "a stray \\` tick" in md
+
+    def test_backticks_in_inline_code_are_neutralized(self) -> None:
+        report = make_report(
+            checks=[Check(id="x`y", title="t", status=CheckStatus.PASS)],
+            model="evil`model",
+            url="https://github.com/acme/widget/issues/7`; rm -rf /",
+        )
+        md = render_markdown(report)
+        assert "\\`x\\`y\\`" in md
+        assert "\\`evil\\`model\\`" in md
+        assert "`nomi analyze https://github.com/acme/widget/issues/7`;" not in md
+
+    def test_unsafe_evidence_urls_are_not_linked(self) -> None:
+        bad = Evidence(
+            kind=EvidenceKind.CODE,
+            description="x",
+            path="a.py",
+            line_start=1,
+            url="javascript:alert(1)",
+        )
+        spaced = Evidence(
+            kind=EvidenceKind.EXECUTION,
+            description="run",
+            url="https://example.com/a b)(c",
+        )
+        md = render_markdown(make_report(claims=[claim_result(evidence=[bad, spaced])]))
+        assert "javascript:" not in md
+        assert "| a.py#L1, execution |" in md
+        parens = Evidence(
+            kind=EvidenceKind.CODE, description="x", path="a (1).py", url="https://x.test/a_(1)"
+        )
+        md = render_markdown(make_report(claims=[claim_result(evidence=[parens])]))
+        assert "[a (1).py](https://x.test/a_%281%29)" in md
+
+    def test_long_cells_are_truncated(self) -> None:
+        md = render_markdown(make_report(claims=[claim_result(text="word " * 500)]))
+        row = table_rows(md, "| # | Claim | Verdict | Evidence |")[0]
+        cell = row.split(" | ")[1]
+        assert cell.endswith("…")
+        assert len(cell) <= 200
+
+    def test_unicode_is_preserved(self) -> None:
+        text = "Ошибка 🚨 in 解析器 — naïve café"
+        md = self.hostile(text)
+        assert text in md
+
+
+# --------------------------------------------------------------------------
+# Size limit
+# --------------------------------------------------------------------------
+
+
+def huge_report() -> Report:
+    claims = [
+        claim_result(f"C{i}", f"claim {i} " + "x" * 3000, evidence=[ev(start=i + 1)] * 5)
+        for i in range(400)
+    ]
+    checks = [
+        Check(
+            id=f"grounding.check{i}",
+            title=f"check {i} " + "t" * 3000,
+            status=list(CheckStatus)[i % 5],
+            signal=Signal.SUPPORTS,
+            strength=0.1,
+            detail="d" * 5000,
+            evidence=[ev(start=i + 1)],
+        )
+        for i in range(3000)
+    ]
+    long_list = [f"item {i} " + "y" * 1000 for i in range(200)]
+    return make_report(
+        summary="s" * 50_000,
+        claims=claims,
+        checks=checks,
+        missing_information=long_list,
+        next_steps=long_list,
+        limitations=long_list,
+        assessment=Assessment(
+            verdict=OverallVerdict.INCONCLUSIVE, confidence=Confidence.LOW, reasons=long_list
+        ),
+    )
+
+
+class TestSizeLimit:
+    def test_huge_report_fits_github_limit(self) -> None:
+        md = render_markdown(huge_report())
+        assert len(md) <= 60_000
+        assert md.startswith(REPORT_MARKER)
+        assert "truncated" in md
+        assert "Generated by Nomi" in md
+        assert md.count("<details>") == md.count("</details>")
+
+    @pytest.mark.parametrize("limit", [20_000, 5_000, 1_500, 300, 25, 0])
+    def test_any_limit_is_respected(self, limit: int) -> None:
+        md = render_markdown(huge_report(), max_chars=limit)
+        assert len(md) <= limit
+        if limit >= 1_500:
+            assert md.startswith(REPORT_MARKER)
+            assert "truncated" in md
+
+    def test_check_rows_are_dropped_before_claims(self) -> None:
+        checks = [
+            Check(id=f"c.{i}", title="t" * 150, status=CheckStatus.PASS, detail="d" * 150)
+            for i in range(300)
+        ]
+        report = make_report(checks=checks)
+        full = render_markdown(report, max_chars=10**9)
+        md = render_markdown(report, max_chars=len(full) - 1)
+        assert len(md) < len(full)
+        assert "more checks omitted" in md
+        assert "| C1 |" in md
+        assert "truncated" in md
+
+
+# --------------------------------------------------------------------------
+# JSON
+# --------------------------------------------------------------------------
+
+
+def test_json_round_trip() -> None:
+    report = make_report(
+        title="Ünïcødé 🚨 <b>|`@x`",
+        model="qwen3:4b",
+        timings={"extract": 0.12, "verify": 1.5},
+    )
+    payload = render_json(report)
+    assert Report.model_validate_json(payload) == report
+    assert '"schema_version": "1"' in payload
+
+
+def test_json_round_trip_of_huge_report() -> None:
+    report = huge_report()
+    assert Report.model_validate_json(render_json(report)) == report

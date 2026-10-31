@@ -9,9 +9,11 @@ For historical issues the workspace is checked out at the last commit
 from __future__ import annotations
 
 import fcntl
+import logging
 import os
 import re
 import subprocess
+import time
 from collections import defaultdict
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -19,6 +21,8 @@ from datetime import UTC, datetime
 from functools import cached_property, lru_cache
 from pathlib import Path
 from urllib.parse import quote
+
+log = logging.getLogger(__name__)
 
 MAX_FILE_BYTES = 1_000_000
 SKIP_DIRS = {
@@ -374,7 +378,11 @@ def _locked(dest: Path):
 def resolve_commit(dest: Path, *, at: datetime | None = None, ref: str | None = None) -> str:
     """Commit for `ref`, or the last default-branch commit before `at`, or HEAD of origin."""
     if ref:
-        return _git(["rev-parse", "--verify", f"{ref}^{{commit}}"], dest).strip()
+        if ref.startswith("-") or not re.fullmatch(r"[\w./-]+", ref):
+            raise ValueError(f"not a git ref: {ref!r}")
+        return _git(
+            ["rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}"], dest
+        ).strip()
     default = "origin/HEAD"
     try:
         _git(["rev-parse", "--verify", default], dest)
@@ -388,6 +396,25 @@ def resolve_commit(dest: Path, *, at: datetime | None = None, ref: str | None = 
     return _git(["rev-parse", default], dest).strip()
 
 
+def _stamp(dest: Path) -> Path:
+    return dest / ".git" / "nomi-fetched-at"
+
+
+def _refresh(dest: Path, *, max_age_s: int) -> None:
+    """Fetch from origin unless we did so recently; keep going offline."""
+    with suppress(OSError):
+        if time.time() - _stamp(dest).stat().st_mtime < max_age_s:
+            return
+    try:
+        _git(["fetch", "--quiet", "--tags", "--force", "origin"], dest, timeout=900)
+    except GitError as exc:
+        log.warning("fetch failed for %s, using the cached clone: %s", dest.name, exc)
+        return
+    with suppress(GitError):
+        _git(["remote", "set-head", "origin", "--auto"], dest, timeout=120)
+    _stamp(dest).touch()
+
+
 def open_github_workspace(
     repo: str,
     *,
@@ -396,11 +423,15 @@ def open_github_workspace(
     ref: str | None = None,
     pr_number: int | None = None,
     remote_url: str | None = None,
+    refresh_after_s: int = 900,
+    keep_worktrees: int = 12,
 ) -> Workspace:
     """Clone (blobless) or refresh `owner/name`, check out the right commit.
 
     `at` time-travels to the repository state when an issue was filed;
     `pr_number` fetches the pull request head so `ref` can point at it.
+    Fetches are throttled to one per `refresh_after_s` per repository, which
+    keeps evaluation runs over many issues of one repository fast.
     """
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
         raise ValueError(f"not a GitHub repository name: {repo!r}")
@@ -413,10 +444,9 @@ def open_github_workspace(
                 dest.parent,
                 timeout=1200,
             )
+            _stamp(dest).touch()
         else:
-            _git(["fetch", "--quiet", "--tags", "--force", "origin"], dest, timeout=900)
-            with suppress(GitError):
-                _git(["remote", "set-head", "origin", "--auto"], dest, timeout=120)
+            _refresh(dest, max_age_s=refresh_after_s)
         if pr_number is not None:
             _git(
                 [
@@ -429,6 +459,31 @@ def open_github_workspace(
                 timeout=600,
             )
         commit = resolve_commit(dest, at=at, ref=ref)
-        _git(["checkout", "--quiet", "--force", "--detach", commit], dest, timeout=1200)
-    _read_text_cached.cache_clear()
-    return Workspace(dest, commit=commit, repo=repo)
+        tree = _worktree(dest, commit, keep=keep_worktrees)
+    return Workspace(tree, commit=commit, repo=repo)
+
+
+def _worktree(dest: Path, commit: str, *, keep: int) -> Path:
+    """A private checkout of `commit`, shared by nothing else.
+
+    Each commit gets its own git worktree, so concurrent analyses (an
+    evaluation run next to the webhook server, say) can never read files from
+    each other's checkout. Least recently used worktrees beyond `keep` are pruned.
+    """
+    root = dest.parent / "worktrees"
+    tree = root / f"{dest.name}@{commit[:16]}"
+    if not (tree / ".git").exists():
+        root.mkdir(parents=True, exist_ok=True)
+        with suppress(GitError):
+            _git(["worktree", "prune"], dest, timeout=120)
+        _git(["worktree", "add", "--force", "--detach", str(tree), commit], dest, timeout=1200)
+    tree.touch()
+    siblings = sorted(
+        (p for p in root.glob(f"{dest.name}@*") if p != tree),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for stale in siblings[max(0, keep - 1) :]:
+        with suppress(GitError):
+            _git(["worktree", "remove", "--force", str(stale)], dest, timeout=300)
+    return tree
