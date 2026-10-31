@@ -552,7 +552,8 @@ def test_verify_quote_edge_cases() -> None:
     assert verify_quote("short source plus extra", "short source") is None
     assert verify_quote("  short source!", "short source") == "short source"
     assert verify_quote("line 3416", SOURCE, threshold=95) is None
-    assert verify_quote("größe() stürzt", "Die `größe()` stürzt ab.") == "größe()` stürzt"
+    # spans never cut an inline-code span in half
+    assert verify_quote("größe() stürzt", "Die `größe()` stürzt ab.") == "`größe()` stürzt"
 
 
 def test_sentences_are_verbatim_slices() -> None:

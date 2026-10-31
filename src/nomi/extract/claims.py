@@ -190,6 +190,11 @@ def _snap(text: str, start: int, end: int) -> tuple[int, int]:
         lo += 1
     while hi > lo and text[hi - 1] in " ([{":
         hi -= 1
+    if text.count("`", lo, hi) % 2:  # never cut an inline-code span in half
+        if lo > 0 and text[lo - 1] == "`":
+            lo -= 1
+        elif hi < len(text) and text[hi] == "`":
+            hi += 1
     return lo, hi
 
 

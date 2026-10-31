@@ -300,7 +300,7 @@ def test_docs_claim_without_doc_files_fails():
         "pr.docs_claim",
     )
     assert check.status is CheckStatus.FAIL
-    assert check.signal is Signal.CONTRADICTS and check.strength == 0.5
+    assert check.signal is Signal.CONTRADICTS and check.strength == 0.6
     assert check.claim_ids == ["C1"]
 
 
@@ -438,7 +438,7 @@ def test_removed_public_function_contradicts_non_breaking_claim(body):
         run_pr_checks(pr(body=body, files=[REMOVE_NORMALIZE]), claims, None), "pr.breaking_change"
     )
     assert check.status is CheckStatus.FAIL
-    assert check.signal is Signal.CONTRADICTS and check.strength == 0.5
+    assert check.signal is Signal.CONTRADICTS and check.strength == 0.6
     assert "`normalize_host`" in check.title and check.claim_ids == ["C1"]
     [evidence] = check.evidence
     assert evidence.excerpt == "-def normalize_host(host: str) -> str:"

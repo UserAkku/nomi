@@ -1061,7 +1061,7 @@ def _check_docs_claim(ctx: _Context) -> list[Check]:
                 "The description claims documentation changes, but no doc file is changed.",
                 CheckStatus.FAIL,
                 Signal.CONTRADICTS,
-                0.5,
+                0.6,
                 detail=f'The description says "{phrase}", but none of the {len(ctx.files)} '
                 "changed files is documentation (README, docs/, changelog, *.md, *.rst, ...).",
                 claim_ids=claim_ids,
@@ -1138,7 +1138,7 @@ def _check_breaking_change(ctx: _Context) -> list[Check]:
             f"{_quote(listed)}.",
             CheckStatus.FAIL,
             Signal.CONTRADICTS,
-            0.5,
+            0.6,
             detail=f'The description says "{phrase}", yet the diff removes {len(listed)} public '
             f"definition(s) without re-adding, aliasing or re-exporting them: {_quote(listed)}.",
             claim_ids=_claims_about(ctx.claims, (*_BREAKING_TERMS, *names)),
