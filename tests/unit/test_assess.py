@@ -795,3 +795,10 @@ def test_fabrication_with_few_valid_references_stays_invalid() -> None:
         check("grounding.symbol", Signal.CONTRADICTS, 0.8),
     ]
     assert assess(Kind.ISSUE, [], checks, FULL).verdict is OverallVerdict.LIKELY_INVALID
+
+
+def test_version_skew_never_excuses_a_nonexistent_function() -> None:
+    held = [check("grounding.symbol", Signal.SUPPORTS, 0.15) for _ in range(6)]
+    missing = check("grounding.symbol", Signal.CONTRADICTS, 0.8, title="not defined anywhere")
+    result = assess(Kind.ISSUE, [], [*held, missing], FULL)
+    assert result.verdict is OverallVerdict.LIKELY_INVALID
