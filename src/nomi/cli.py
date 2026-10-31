@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import sys
+import time
 from pathlib import Path
 
 import typer
@@ -151,6 +152,12 @@ def evaluate(
         False, "--no-sandbox", help="Never execute reproduction snippets."
     ),
     fresh: bool = typer.Option(False, "--fresh", help="Ignore earlier predictions in --out."),
+    max_temp: float | None = typer.Option(
+        None,
+        "--max-temp",
+        help="Pause before an issue while the chip is at or above this °C (macOS).",
+    ),
+    cooldown: float = typer.Option(0.0, "--cooldown", help="Seconds to rest between issues."),
 ) -> None:
     """Score Nomi against closed issues whose labels are the reference answers."""
     from nomi.eval.dataset import EvalItem, load_dataset
@@ -169,7 +176,14 @@ def evaluate(
         err.print(f"[yellow]warning:[/] {llm_note}")
     sandbox, _ = build_sandbox(settings, enabled=not no_sandbox)
 
+    from nomi.thermal import wait_until_cool
+
     def analyze_item(item: EvalItem) -> Report:
+        # Sustained local inference heats a laptop; pace the run instead of cooking it.
+        if max_temp is not None:
+            wait_until_cool(max_temp, notify=lambda msg: err.print(f"[yellow]thermal:[/] {msg}"))
+        if cooldown > 0:
+            time.sleep(cooldown)
         submission = item.to_submission()
         workspace, note = open_workspace_for(submission, settings)
         notes = [n for n in (note, llm_note) if n]
@@ -260,7 +274,14 @@ def doctor() -> None:
     table.add_column("Status")
     table.add_column("Detail")
 
+    from nomi.thermal import hottest_celsius
+
     table.add_row("python", "✅", sys.version.split()[0])
+    temp = hottest_celsius()
+    if temp is not None:
+        table.add_row(
+            "chip temperature", "✅" if temp < 85 else "⚠️", f"{temp:.0f} °C (hottest SoC sensor)"
+        )
     table.add_row(
         "git", "✅" if shutil.which("git") else "❌", shutil.which("git") or "git is required"
     )
