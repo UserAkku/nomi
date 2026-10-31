@@ -10,7 +10,7 @@
 | Majority-class baseline accuracy | 38.5% (always invalid) |
 | False-invalid rate (confirmed bugs called invalid) | 0.0% (0 of 25) |
 | Errors (scored as abstentions) | 0 |
-| Mean seconds per analysed item | 1.4 |
+| Mean seconds per analysed item | 0.8 |
 
 ## Per class
 

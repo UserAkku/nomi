@@ -108,7 +108,7 @@ Full write-up and raw predictions: [examples/evaluation/](examples/evaluation/).
 | Coverage (answered instead of abstaining) | 69.2 % | 100 % |
 | Macro F1 | 0.34 | 0.19 |
 
-**What this means.** Nomi reliably catches invented functions, files and line numbers, and it never dismissed a real bug. Maintainer *invalid* labels mostly mean "usage question" or "works as designed", where the reported code really exists, so code-grounded checks cannot call those reports false. Nomi abstains instead, which is why its *invalid* recall is low. On a 24-issue subset the local model did **not** raise label agreement over deterministic checks (selective accuracy 46.7 % vs 50.0 %). We report that rather than hide it. The model's job is to break a report into individual claims and give line-cited explanations; verdict-changing evidence is deterministic by design.
+**What this means.** Nomi reliably catches invented functions, files and line numbers, and it never dismissed a real bug. Maintainer *invalid* labels mostly mean "usage question" or "works as designed", where the reported code really exists, so code-grounded checks cannot call those reports false. Nomi abstains instead, which is why its *invalid* recall is low. On a 24-issue subset the local model improved label agreement only slightly over deterministic checks: 8 vs 7 correct, selective accuracy 53.3 % vs 50.0 %. That is too few issues to claim a real gain, and we say so. The model's job is to break a report into individual claims and give line-cited explanations; verdict-changing evidence is deterministic by design.
 
 ```bash
 uv run nomi eval data/eval/test.jsonl --no-llm --out eval-runs/test

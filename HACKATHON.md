@@ -49,7 +49,7 @@ git (pinned-commit checkouts, `git grep`, tags), BM25 retrieval over code and do
 ## Results (measured, see `examples/evaluation/`)
 - **Fabrication benchmark:** 19 maintainer-confirmed issues, each with a twin carrying a curl-style invented root cause (a non-existent function plus a line past the end of a real file). Nomi flagged **19/19 twins** and **0/19 originals**.
 - **Real maintainer labels:** 91 held-out closed issues from celery, poetry and pylint. **False-invalid rate 0%**: no confirmed bug was ever called invalid. Selective accuracy was 47.6% against a 38.5% majority baseline, and Nomi abstained on 31% instead of guessing.
-- **Honest negative result:** on a 24-issue subset the local model did not raise agreement with maintainer labels over deterministic checks. Its role is breaking a report into claims and giving line-cited explanations; verdicts rest on deterministic evidence by design.
+- **Model contribution, measured honestly:** on a 24-issue subset the local model was slightly better than deterministic checks alone (8 vs 7 correct; selective accuracy 53.3% vs 50.0%), too small a sample to claim a real gain. Its role is breaking a report into claims and giving line-cited explanations; verdicts rest on deterministic evidence by design.
 
 ## How we built it
 - Every change after the initial commit went through a pull request into `dev`, and `dev` is released to `main` by pull request. CI (lint, about 1,100 tests on Python 3.11–3.13 including real Docker sandbox tests, and an end-to-end smoke test) passed on every merge.
