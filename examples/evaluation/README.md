@@ -12,7 +12,7 @@ Every number here comes from a real run of `nomi eval` on this laptop (MacBook P
 |---|---|
 | Fabricated twins flagged **likely invalid** | **19 / 19** |
 | Genuine controls flagged invalid | **0 / 19** |
-| Selective accuracy (answered items) | 96.8 % |
+| Selective accuracy (answered items) | 96.6 % |
 
 Deterministic mode, about 1 s per issue.
 
@@ -23,14 +23,14 @@ Deterministic mode, about 1 s per issue.
 | Metric | Nomi (deterministic) | Majority baseline |
 |---|---:|---:|
 | False-invalid rate (confirmed bugs called invalid) | **0 %** (0 / 25) | 100 % (25 / 25) |
-| Coverage (answered instead of abstaining) | 69.2 % | 100 % |
-| Selective accuracy (answered items) | 47.6 % | 38.5 % |
-| Accuracy (abstentions count as wrong) | 33.0 % | 38.5 % |
-| Macro F1 | 0.34 | 0.19 |
+| Coverage (answered instead of abstaining) | 65.9 % | 100 % |
+| Selective accuracy (answered items) | 46.7 % | 38.5 % |
+| Accuracy (abstentions count as wrong) | 30.8 % | 38.5 % |
+| Macro F1 | 0.32 | 0.19 |
 
 ## 3. Local model vs. deterministic, same 24-issue subset
 
-`test-small-model.*` and `test-small-deterministic.*` cover a stratified subset with 8 issues per class. Both use the final code.
+`test-small-model.*` and `test-small-deterministic.*` cover a stratified subset with 8 issues per class. Both were run on the same commit (`ff6457d`, before the final release polish), so the comparison is like for like. Sections 1 and 2 use the released code.
 
 | | Deterministic | + Qwen3 4B (local) |
 |---|---:|---:|

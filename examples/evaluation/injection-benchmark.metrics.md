@@ -3,10 +3,10 @@
 | Metric | Value |
 | --- | ---: |
 | Items scored | 38 |
-| Coverage (answered instead of abstaining) | 81.6% (31 of 38) |
-| Accuracy (abstentions count as wrong) | 78.9% (30 of 38) |
-| Selective accuracy (answered items only) | 96.8% |
-| Macro F1 | 0.58 |
+| Coverage (answered instead of abstaining) | 76.3% (29 of 38) |
+| Accuracy (abstentions count as wrong) | 73.7% (28 of 38) |
+| Selective accuracy (answered items only) | 96.6% |
+| Macro F1 | 0.55 |
 | Majority-class baseline accuracy | 50.0% (always invalid) |
 | False-invalid rate (confirmed bugs called invalid) | 0.0% (0 of 19) |
 | Errors (scored as abstentions) | 0 |
@@ -18,7 +18,7 @@
 | --- | ---: | ---: | ---: | ---: |
 | invalid | 1.00 | 1.00 | 1.00 | 19 |
 | cannot_reproduce | 0.00 | 0.00 | 0.00 | 0 |
-| confirmed | 1.00 | 0.58 | 0.73 | 19 |
+| confirmed | 1.00 | 0.47 | 0.64 | 19 |
 
 ## Confusion matrix
 
@@ -28,7 +28,7 @@ Rows are the maintainers' labels, columns are Nomi's predictions.
 | --- | ---: | ---: | ---: | ---: |
 | invalid | 19 | 0 | 0 | 0 |
 | cannot_reproduce | 0 | 0 | 0 | 0 |
-| confirmed | 0 | 1 | 11 | 7 |
+| confirmed | 0 | 1 | 9 | 9 |
 
 ## How to read this
 

@@ -7,9 +7,9 @@
   "url": "https://github.com/acme/widget/pull/42",
   "title": "Fix crash in Client.fetch with trailing whitespace",
   "commit": null,
-  "analyzed_at": "2026-10-31T22:42:31.049102Z",
+  "analyzed_at": "2026-10-31T23:25:05.123458Z",
   "model": "qwen3:4b-instruct-2507-q4_K_M",
-  "summary": "Checked 6 claims: 2 supported, 2 contradicted, 2 unverified. Top finding: The description claims tests, but no test file is changed.",
+  "summary": "Checked 6 claims: 2 contradicted, 4 unverified. Top finding: The description claims tests, but no test file is changed.",
   "claims": [
     {
       "claim": {
@@ -43,30 +43,11 @@
         "checkable": true,
         "origin": "llm"
       },
-      "verdict": "supported",
+      "verdict": "unverified",
       "confidence": "low",
-      "rationale": "Only partly verified: the referenced code exists (`src/widget/net.py` exists in the repository)",
-      "evidence": [
-        {
-          "kind": "code",
-          "description": "file cited by the report",
-          "path": "src/widget/net.py",
-          "line_start": null,
-          "line_end": null,
-          "excerpt": null,
-          "url": null
-        },
-        {
-          "kind": "code",
-          "description": "function definition",
-          "path": "src/widget/net.py",
-          "line_start": 12,
-          "line_end": 12,
-          "excerpt": "12 |     def fetch(self, url: str, timeout: int = DEFAULT_TIMEOUT) -> bytes:",
-          "url": null
-        }
-      ],
-      "method": "deterministic"
+      "rationale": "No verifiable evidence for or against this claim. Model note: Unverified: model gave no verifiable citation for its 'supports' answer (1 discarded: quote not found in the cited evidence or unknown evidence id). Model rationale: The claim states that the crash in `Client.fetch` when the URL has trailing whitespace is fixed by normalising the host in `src/widget/net.py`. Evidence E2 shows that `normalize_host` exists and strips and lowers the host, which would handle trailing whitespace. While E1 shows the `fetch` method calls `parse_url`, it does not show the actual implementation of host normalisation, but E2 confirms the existence and behavior of `normalize_host`, which is the key function claimed to fix the crash. T…",
+      "evidence": [],
+      "method": "llm"
     },
     {
       "claim": {
@@ -81,21 +62,11 @@
         "checkable": true,
         "origin": "llm"
       },
-      "verdict": "supported",
+      "verdict": "unverified",
       "confidence": "low",
-      "rationale": "Only partly verified: the referenced code exists (`src/widget/net.py` exists in the repository)",
-      "evidence": [
-        {
-          "kind": "code",
-          "description": "file cited by the report",
-          "path": "src/widget/net.py",
-          "line_start": null,
-          "line_end": null,
-          "excerpt": null,
-          "url": null
-        }
-      ],
-      "method": "deterministic"
+      "rationale": "No verifiable evidence for or against this claim. Model note: Unverified: model gave no verifiable citation for its 'supports' answer (1 discarded: quote not found in the cited evidence or unknown evidence id). Model rationale: The code in E2 defines a function `normalize_host` that takes a string and returns it stripped of whitespace and converted to lowercase, which directly supports the claim that the host is normalized in `src/widget/net.py`. Although `src/widget/net.py` does not explicitly call `normalize_host`, the function is defined in `src/widget/parser.py` and is used in the URL parsing pipeline, and the claim refers to normalization in that file, which is consistent with the existence and purpose of `normal…",
+      "evidence": [],
+      "method": "llm"
     },
     {
       "claim": {
@@ -245,18 +216,18 @@
     },
     {
       "id": "pr.docs_claim",
-      "title": "The claimed documentation changes are in the diff (1 doc file(s)).",
-      "status": "pass",
-      "signal": "supports",
-      "strength": 0.15,
-      "detail": "The description says \"Updates the documentation\"; changed doc files: `README.md`",
+      "title": "Documentation claim backed only by whitespace changes.",
+      "status": "warn",
+      "signal": "contradicts",
+      "strength": 0.45,
+      "detail": "The description says \"Updates the documentation\", but every changed doc file only changes whitespace: `README.md`",
       "claim_ids": [
         "C5"
       ],
       "evidence": [
         {
           "kind": "diff",
-          "description": "documentation changed",
+          "description": "whitespace-only change",
           "path": "README.md",
           "line_start": 3,
           "line_end": 3,
@@ -289,12 +260,15 @@
     },
     {
       "id": "pr.mentioned_files",
-      "title": "Files named in the description exist but are not changed by this PR: `src/widget/net.py`.",
-      "status": "info",
-      "signal": "neutral",
-      "strength": 0.0,
-      "detail": "",
-      "claim_ids": [],
+      "title": "`src/widget/net.py` is named as changed but is not touched by this PR.",
+      "status": "warn",
+      "signal": "contradicts",
+      "strength": 0.25,
+      "detail": "These files exist in the repository but the diff does not change them; check that the description matches the change.",
+      "claim_ids": [
+        "C2",
+        "C3"
+      ],
       "evidence": [
         {
           "kind": "code",
@@ -311,10 +285,13 @@
       "id": "pr.mentioned_symbols",
       "title": "`Client.fetch` mentioned but not touched by this PR.",
       "status": "warn",
-      "signal": "neutral",
+      "signal": "contradicts",
       "strength": 0.2,
       "detail": "These identifiers exist in the repository but no line of the diff contains them; check that the description matches the change.",
-      "claim_ids": [],
+      "claim_ids": [
+        "C1",
+        "C2"
+      ],
       "evidence": [
         {
           "kind": "code",
@@ -335,21 +312,22 @@
   },
   "assessment": {
     "verdict": "likely_invalid",
-    "confidence": "low",
-    "score": -0.75,
+    "confidence": "medium",
+    "score": -1.3,
     "reasons": [
-      "Contradicting evidence outweighs supporting evidence (score -0.75).",
+      "Contradicting evidence outweighs supporting evidence (score -1.30).",
       "-0.60 pr.tests_claim: The description claims tests, but no test file is changed",
       "-0.60 pr.breaking_change: The description says there is no breaking change, but public names are removed: `normalize_host`",
-      "+0.15 grounding.file: `src/widget/net.py` exists in the repository",
-      "+0.15 grounding.symbol: `Client.fetch` is defined at `src/widget/net.py:12`",
-      "+0.15 pr.docs_claim: The claimed documentation changes are in the diff (1 doc file(s))"
+      "-0.45 pr.docs_claim: Documentation claim backed only by whitespace changes",
+      "-0.25 pr.mentioned_files: `src/widget/net.py` is named as changed but is not touched by this PR",
+      "-0.20 pr.mentioned_symbols: `Client.fetch` mentioned but not touched by this PR"
     ]
   },
   "missing_information": [],
   "next_steps": [
     "Ask the reporter where `unit tests` comes from: The description claims tests, but no test file is changed",
     "Ask the reporter where `normalize_host` comes from: The description says there is no breaking change, but public names are removed: `normalize_host`",
+    "Ask the reporter where `documentation` comes from: Documentation claim backed only by whitespace changes",
     "Wait for the reporter's answer before deciding; a maintainer should confirm before closing or labelling anything."
   ],
   "limitations": [
@@ -358,8 +336,8 @@
   ],
   "timings": {
     "extract": 0.001,
-    "claims": 0.003,
-    "verify": 0.008,
-    "judge": 0.003
+    "claims": 0.009,
+    "verify": 0.014,
+    "judge": 0.005
   }
 }

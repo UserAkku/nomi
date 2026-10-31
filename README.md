@@ -31,7 +31,7 @@ Abridged from the [actual output](examples/curl-style-fabricated-report/report.m
 > |---|---|---|---|
 > | C1 | stack-based buffer overflow in `curl_easy_setopt_safe()` allows remote code execution … | ❌ contradicted · high | [lib/easy.c](https://github.com/curl/curl/blob/a133b27d0779fd6f74127139231efa456fdd2b44/lib/easy.c) |
 > | C2 | `lib/easy.c` line 3412, `curl_easy_setopt_safe()` copies the redirect URL into a fixed 1024-byte stack buffer … | ❌ contradicted · high | [lib/easy.c](https://github.com/curl/curl/blob/a133b27d0779fd6f74127139231efa456fdd2b44/lib/easy.c) |
-> | C6 | Remote code execution in every application using libcurl 8.4.0 … | ❔ unverified · low | — |
+> | C6 | Remote code execution in every application using libcurl 8.4.0 … | 📝 needs info · low | — |
 >
 > *Why:* `curl_easy_setopt_safe` is not defined anywhere in curl at `a133b27`; `lib/easy.c` has 1,480 lines, not 3,412; the ASan frames point past the end of real files.
 
@@ -104,11 +104,11 @@ Full write-up and raw predictions: [examples/evaluation/](examples/evaluation/).
 | Metric | Nomi | Majority baseline |
 |---|---:|---:|
 | False-invalid rate (confirmed bugs called *invalid*) | **0 %** (0 / 25) | 100 % (25 / 25) |
-| Selective accuracy (answered items) | 47.6 % | 38.5 % |
-| Coverage (answered instead of abstaining) | 69.2 % | 100 % |
-| Macro F1 | 0.34 | 0.19 |
+| Selective accuracy (answered items) | 46.7 % | 38.5 % |
+| Coverage (answered instead of abstaining) | 65.9 % | 100 % |
+| Macro F1 | 0.32 | 0.19 |
 
-**What this means.** Nomi reliably catches invented functions, files and line numbers, and it never dismissed a real bug. Maintainer *invalid* labels mostly mean "usage question" or "works as designed", where the reported code really exists, so code-grounded checks cannot call those reports false. Nomi never answers *invalid* for them; it says *needs more information*, *likely valid* or *inconclusive* instead, so its *invalid* recall on real labels is 0. On a 24-issue subset the local model improved label agreement only slightly over deterministic checks: 8 vs 7 correct, selective accuracy 53.3 % vs 50.0 %. That is too few issues to claim a real gain, and we say so. The model's job is to break a report into individual claims and give line-cited explanations; verdict-changing evidence is deterministic by design.
+**What this means.** Nomi reliably catches invented functions, files and line numbers, and it never dismissed a real bug. Maintainer *invalid* labels mostly mean "usage question" or "works as designed", where the reported code really exists, so code-grounded checks cannot call those reports false. Nomi never answers *invalid* for them; it says *needs more information*, *likely valid* or *inconclusive* instead, so its *invalid* recall on real labels is 0. On a 24-issue subset, with both runs on the same commit, the local model improved label agreement only slightly over deterministic checks: 8 vs 7 correct, selective accuracy 53.3 % vs 50.0 %. That is too few issues to claim a real gain, and we say so. The model's job is to break a report into individual claims and give line-cited explanations; verdict-changing evidence is deterministic by design.
 
 ```bash
 uv run nomi eval data/eval/test.jsonl --no-llm --out eval-runs/test
