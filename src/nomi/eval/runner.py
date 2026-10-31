@@ -168,6 +168,9 @@ def _describe(exc: BaseException) -> str:
         message = f"{type(exc).__name__}: {exc}"
     except Exception:
         message = type(exc).__name__
+    home = str(Path.home())
+    if home and home != "/":  # predictions get published; keep host paths out
+        message = message.replace(home, "~")
     return message if len(message) <= _MAX_ERROR_CHARS else message[: _MAX_ERROR_CHARS - 3] + "..."
 
 

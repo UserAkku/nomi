@@ -110,6 +110,11 @@ _PRIORITY_TYPES = frozenset(
 _FENCE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
 _HTML_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
 _HEADING = re.compile(r"\s{0,3}#{1,6}\s")
+_CHECKLIST = re.compile(r"\s*(?:(?:[-*+]|\d{1,3}[.)])\s+)?\[[ xX]\](?:\s|$)")
+_NUMBERED = re.compile(r"\s{0,3}\d{1,3}[.)]\s")
+_CONTINUATION = re.compile(r"\s+(?![-*+]\s|\d{1,3}[.)]\s)\S")
+_MAX_LABEL_WORDS = 5  # "### Steps to reproduce", "## Environment & Settings"
+_MIN_STEP_WORDS = 6  # "1. Run the server" is a step, not a claim
 _BLOCK_MARKERS = re.compile(r"(?:\s*(?:#{1,6}(?=\s)|>|[-*+](?=\s)|\d{1,3}[.)](?=\s)|\[[ xX]\]))+")
 _SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'`(\[])")
 _ABBREVIATION = re.compile(r"\b(?:e\.g|i\.e|etc|vs|cf|approx|Mr|Ms|Dr|No)\.$", re.IGNORECASE)
@@ -237,6 +242,8 @@ class _Sentence:
     end: int
     text: str
     heading: bool = False
+    checklist: bool = False  # a "- [x] ..." item or its wrapped continuation
+    numbered: bool = False  # first piece of a "1. ..." list item
 
 
 def _is_fence_close(line: str, fence: str) -> bool:
@@ -324,13 +331,22 @@ def sentences(text: str, *, include_code: bool = False) -> list[_Sentence]:
     work = _masked(text, mask_code=not include_code)
     found: list[_Sentence] = []
     offset = 0
+    in_checklist = False
     for line in work.splitlines(keepends=True):
         line_end = offset + len(line.rstrip("\r\n"))
         heading = bool(_HEADING.match(work, offset, line_end))
+        if _CHECKLIST.match(work, offset, line_end):
+            in_checklist = True
+        elif not (in_checklist and _CONTINUATION.match(work, offset, line_end)):
+            in_checklist = False
+        numbered = bool(_NUMBERED.match(work, offset, line_end))
         for piece in _split_line(work, offset, line_end):
             for start, end in _chunks(work, *_trim(work, *piece)):
                 if end - start >= 3 and _LETTER.search(text, start, end):
-                    found.append(_Sentence(start, end, text[start:end], heading))
+                    found.append(
+                        _Sentence(start, end, text[start:end], heading, in_checklist, numbered)
+                    )
+                    numbered = False
         offset += len(line)
     return found
 
@@ -437,8 +453,13 @@ def _rules_type(sentence: str, found: _Found, is_pr: bool) -> ClaimType:
 
 
 def _score(unit: _Sentence, found: _Found) -> int:
-    if not found.kinds and (unit.heading or len(unit.text.split()) < 3):
-        return 0  # section labels such as "### Expected behavior" are not claims
+    words = len(unit.text.split())
+    if unit.checklist or (unit.heading and words <= _MAX_LABEL_WORDS):
+        return 0  # template checklists and section labels ("### Expected behavior")
+    if unit.numbered and words < _MIN_STEP_WORDS:
+        return 0  # bare repro steps such as "1. Run the server"
+    if not found.kinds and (unit.heading or words < 3):
+        return 0
     artifact_score = sum(_WEIGHTS[kind] for kind in found.kinds)
     return artifact_score + min(_MAX_CUE_SCORE, len(_CUES.findall(unit.text)))
 

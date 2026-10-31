@@ -1,7 +1,7 @@
 <!-- nomi:report -->
 ### Nomi evidence report
 
-**🟥 Likely invalid** · high confidence · score -1.85
+**🟥 Likely invalid** · high confidence · score -1.75
 
 _Automated, evidence-based triage — not a final decision; a maintainer should confirm._
 
@@ -11,12 +11,12 @@ No commit pinned · model `qwen3:4b-instruct-2507-q4_K_M`
 
 <details><summary>How the verdict was reached</summary>
 
-- Strong contradicting evidence: 2 check(s) contradict the report (strongest 0.80, total 2.60).
+- Strong contradicting evidence: 2 check(s) contradict the report (strongest 0.80, total 2.50).
 - \-0.80 grounding.symbol: `mh_easy_setopt_url_safe` is not defined or referenced anywhere in the repository in the analysed checkout
 - \-0.75 grounding.line: `lib/easy.c` has 62 lines, but the report cites line 412
 - \-0.65 trace.frames: Stack trace does not match the code in the analysed checkout: 2 of 2 frames point at the wrong lines or functions
 - \-0.30 grounding.file: No file `lib/vtls/openssl_ext.c` exists in the repository in the analysed checkout
-- \-0.30 grounding.symbol: `ASan` was not found in the repository in the analysed checkout; it may come from a dependency
+- \+0.15 grounding.file: `lib/easy.c` exists in the repository
 
 </details>
 
@@ -55,7 +55,7 @@ No commit pinned · model `qwen3:4b-instruct-2507-q4_K_M`
 - Ask the reporter to clarify: Stack trace does not match the code in the analysed checkout: 2 of 2 frames point at the wrong lines or functions
 - Wait for the reporter's answer before deciding; a maintainer should confirm before closing or labelling anything.
 
-<details><summary>Checks performed (13: 5 passed, 3 failed, 2 warnings, 1 skipped)</summary>
+<details><summary>Checks performed (12: 5 passed, 3 failed, 1 warning, 2 info, 1 skipped)</summary>
 
 | Check | Result | Detail |
 | --- | --- | --- |
@@ -63,7 +63,6 @@ No commit pinned · model `qwen3:4b-instruct-2507-q4_K_M`
 | `mh_easy_setopt_url_safe` is not defined or referenced anywhere in the repository in the analysed checkout `grounding.symbol` | ❌ fail · −0.80 | The report attributes it to this project: a stack trace places it in `lib/easy.c`. · lib/easy.c |
 | Stack trace does not match the code in the analysed checkout: 2 of 2 frames point at the wrong lines or functions `trace.frames` | ❌ fail · −0.65 | - `lib/easy.c` has 62 lines, but the frame cites line 412 - `lib/easy.c` has 62 lines, but the frame cites line 530 · lib/easy.c#L60-L62 |
 | No file `lib/vtls/openssl_ext.c` exists in the repository in the analysed checkout `grounding.file` | ⚠️ warning · −0.30 | It may also be a file on the reporter's machine. |
-| `ASan` was not found in the repository in the analysed checkout; it may come from a dependency `grounding.symbol` | ⚠️ warning · −0.30 | — |
 | `lib/easy.c` exists in the repository `grounding.file` | ✅ pass · +0.15 | lib/easy.c |
 | `include/minihttp.h` exists in the repository (cited as `minihttp.h`) `grounding.file` | ✅ pass · +0.15 | include/minihttp.h |
 | `mh_easy_perform` is defined at `lib/easy.c:43` `grounding.symbol` | ✅ pass · +0.15 | lib/easy.c#L43 |

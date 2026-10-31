@@ -26,6 +26,11 @@ _VERSION_WORD = re.compile(r"\bversions?\b", re.I)
 _OF_FOR = re.compile(r"^\s*(?:of|for)\s+([A-Za-z][\w+-]*)", re.I)
 _PAD = 6
 _WINDOW = 40
+# `kombu:5.0.2`, `kombu==5.0.2`, `py: 3.8.5` and `billiard 3.6.3` name their package
+# right before the number (as in `celery report` / `pip freeze` output). The spaced form
+# also keeps the word before it, so `celery multi v5.0.1` stays the project's version.
+_KEYED_OWNER = re.compile(r"([A-Za-z][\w.+-]*) ?(?:==|[:=]) ?$")
+_SPACED_OWNER = re.compile(r"(?:([A-Za-z][\w.+-]*) )?([A-Za-z][\w.+-]*) $")
 
 
 def _words(text: str) -> frozenset[str]:
@@ -41,6 +46,20 @@ _OTHER_PRODUCTS = _words(
     musl cmake make git bash zsh xcode vscode django flask numpy pandas react vue angular
     typescript tsc electron nginx apache postgres postgresql mysql sqlite redis mongodb cuda
     torch pytorch tensorflow curl libcurl wget sonoma ventura monterey
+    """
+)
+
+
+# Words that sit right before a version number without naming a package.
+_NOT_OWNERS = _words(
+    """
+    a an the this that it its is was are be been being on in at to of for from with and or
+    but by as since after before until till into than then about around near between only
+    even still also just now upgrade upgrading upgraded update updating updated downgrade
+    downgrading downgraded install installing installed using use used uses running run runs
+    version versions ver release released releases tag tagged build branch latest current
+    newest old older new newer tested testing see fixed fix fixes broken breaks introduced
+    v
     """
 )
 
@@ -98,11 +117,14 @@ def check_versions(
     if not releases:
         return []
     project = (project_name or (ws.repo or ws.root.name).split("/")[-1]).strip().lower()
+    own = {project, *(p.lower() for p in ws.python_packages)} - {""}
     newest_tag, newest = releases[0]
     majors = {v.major for _, v in releases}
     checks: list[Check] = []
     matched: list[Version] = []
     for raw, version in _mentions(artifacts):
+        if _other_package_pin(raw, version, text, project, own):
+            continue
         attribution = _attribution(raw, version, text, project)
         tag = _matching_tag(version, releases)
         if tag is not None:
@@ -167,6 +189,32 @@ def _attribution(raw: str, version: Version, text: str, project: str) -> str:
         if verdict in verdicts:
             return verdict
     return "none"
+
+
+def _immediate_owner(prefix: str) -> tuple[str, ...]:
+    """Package names right before a version (`kombu:`, `kombu==`, `celery multi `), or ()."""
+    keyed = _KEYED_OWNER.search(prefix)
+    spaced = None if keyed else _SPACED_OWNER.search(prefix)
+    names = [keyed.group(1)] if keyed else [spaced.group(2), spaced.group(1)] if spaced else []
+    clean = tuple(n.lower().rstrip(".+-") for n in names if n)
+    return () if not clean or not clean[0] or clean[0] in _NOT_OWNERS else clean
+
+
+def _other_package_pin(raw: str, version: Version, text: str, project: str, own: set[str]) -> bool:
+    """True when the version is pinned to a named package that is not this project."""
+    owners = []
+    m = _MENTION.search(raw)
+    if m:
+        owners.append(_immediate_owner(raw[: m.start()]))
+    core = ".".join(map(str, version.numbers))
+    for occ in _occurrences(core, text):
+        owners.append(_immediate_owner(text[max(0, occ.start() - _WINDOW) : occ.start()]))
+    named = [o for o in owners if o]
+    return bool(named) and not any(
+        _is_project(n, project) or n in own or n.replace("-", "_") in own
+        for names in named
+        for n in names
+    )
 
 
 def _occurrences(core: str, text: str) -> list[re.Match[str]]:

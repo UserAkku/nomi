@@ -80,3 +80,83 @@ def test_analyze_rejects_bad_format_and_bad_input(tmp_path):
 def test_analyze_rejects_unparseable_target():
     result = runner.invoke(app, ["analyze", "not-a-github-reference", "--no-llm"])
     assert result.exit_code == 2
+
+
+def _flat(output: str) -> str:
+    """Rich wraps stderr at the terminal width; undo it for phrase checks."""
+    return " ".join(output.split())
+
+
+def _offline_args(*extra: str) -> list[str]:
+    return [
+        "analyze",
+        "--input-file",
+        str(EXAMPLE / "input.json"),
+        "--repo-path",
+        str(EXAMPLE / "repo"),
+        "--no-llm",
+        "--no-sandbox",
+        *extra,
+    ]
+
+
+def test_analyze_out_is_an_existing_file_fails_cleanly(tmp_path):
+    target = tmp_path / "report.md"
+    target.write_text("keep me")
+    result = runner.invoke(app, _offline_args("--out", str(target)))
+    assert result.exit_code == 2
+    assert "cannot write report to" in _flat(result.output)
+    assert "is not a directory" in _flat(result.output)
+    assert not isinstance(result.exception, OSError)
+    assert target.read_text() == "keep me"
+
+
+def test_analyze_unwritable_out_fails_cleanly(tmp_path):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("")
+    result = runner.invoke(app, _offline_args("--out", str(blocker / "sub")))
+    assert result.exit_code == 2
+    assert "cannot write report to" in _flat(result.output)
+    assert not isinstance(result.exception, OSError)
+
+
+def test_analyze_repo_path_that_is_a_file(tmp_path):
+    not_a_dir = tmp_path / "file.txt"
+    not_a_dir.write_text("")
+    result = runner.invoke(
+        app,
+        [
+            "analyze",
+            "--input-file",
+            str(EXAMPLE / "input.json"),
+            "--repo-path",
+            str(not_a_dir),
+            "--no-llm",
+            "--no-sandbox",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "is not a directory" in _flat(result.output)
+    assert "does not exist" not in _flat(result.output)
+
+
+def test_serve_rejects_out_of_range_port():
+    for port in ("0", "70000"):
+        result = runner.invoke(app, ["serve", "--port", port])
+        assert result.exit_code == 2
+        assert not isinstance(result.exception, OverflowError)
+
+
+def test_make_injection_set_script_has_help():
+    import subprocess
+    import sys
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "make-injection-set.py"
+    shown = subprocess.run(
+        [sys.executable, str(script), "--help"], capture_output=True, text=True, check=False
+    )
+    assert shown.returncode == 0, shown.stderr
+    assert "src" in shown.stdout and "dest" in shown.stdout
+    missing = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
+    assert missing.returncode == 2
+    assert "IndexError" not in missing.stderr

@@ -7,7 +7,7 @@
   "url": "https://github.com/example/minihttp/issues/101",
   "title": "Heap buffer overflow in mh_easy_setopt_url_safe() leads to RCE",
   "commit": null,
-  "analyzed_at": "2026-10-31T22:42:29.907964Z",
+  "analyzed_at": "2026-10-31T23:25:02.325398Z",
   "model": "qwen3:4b-instruct-2507-q4_K_M",
   "summary": "Checked 6 claims: 3 contradicted, 2 unverified, 1 needs info. Top finding: `mh_easy_setopt_url_safe` is not defined or referenced anywhere in the repository in the analysed checkout.",
   "claims": [
@@ -326,16 +326,6 @@
       ]
     },
     {
-      "id": "grounding.symbol",
-      "title": "`ASan` was not found in the repository in the analysed checkout; it may come from a dependency",
-      "status": "warn",
-      "signal": "contradicts",
-      "strength": 0.3,
-      "detail": "",
-      "claim_ids": [],
-      "evidence": []
-    },
-    {
       "id": "grounding.error_message",
       "title": "Error text `AddressSanitizer: heap-buffer-overflow on address 0x602000000110` was not found in the repository's code",
       "status": "info",
@@ -412,14 +402,14 @@
   "assessment": {
     "verdict": "likely_invalid",
     "confidence": "high",
-    "score": -1.85,
+    "score": -1.75,
     "reasons": [
-      "Strong contradicting evidence: 2 check(s) contradict the report (strongest 0.80, total 2.60).",
+      "Strong contradicting evidence: 2 check(s) contradict the report (strongest 0.80, total 2.50).",
       "-0.80 grounding.symbol: `mh_easy_setopt_url_safe` is not defined or referenced anywhere in the repository in the analysed checkout",
       "-0.75 grounding.line: `lib/easy.c` has 62 lines, but the report cites line 412",
       "-0.65 trace.frames: Stack trace does not match the code in the analysed checkout: 2 of 2 frames point at the wrong lines or functions",
       "-0.30 grounding.file: No file `lib/vtls/openssl_ext.c` exists in the repository in the analysed checkout",
-      "-0.30 grounding.symbol: `ASan` was not found in the repository in the analysed checkout; it may come from a dependency"
+      "+0.15 grounding.file: `lib/easy.c` exists in the repository"
     ]
   },
   "missing_information": [
@@ -439,10 +429,10 @@
     "LLM judgements come from a small local model and are advisory (never high confidence on their own)"
   ],
   "timings": {
-    "extract": 0.002,
-    "claims": 0.006,
-    "verify": 0.029,
+    "extract": 0.001,
+    "claims": 43.649,
+    "verify": 0.101,
     "reproduce": 0.0,
-    "judge": 0.005
+    "judge": 0.048
   }
 }

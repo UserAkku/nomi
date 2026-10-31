@@ -292,7 +292,7 @@ def test_rules_ignore_code_blocks_comments_and_section_labels() -> None:
     body = (
         "### Expected behavior\n"
         "<!-- Describe what should happen; parse_url should never crash -->\n"
-        "- [x] `parse_url` should return a dict for `http://x`.\n"
+        "- `parse_url` should return a dict for `http://x`.\n"
         "```python\n"
         "parse_url('x')  # raises ValueError: missing scheme\n"
         "```\n"
@@ -308,6 +308,43 @@ def test_rules_ignore_code_blocks_comments_and_section_labels() -> None:
         "It fails with ValueError: missing scheme in 'x'",
     ]
     assert claims[1].type == ClaimType.BEHAVIOR
+
+
+def test_rules_skip_checklists_template_headings_and_bare_steps() -> None:
+    body = (
+        "# Checklist\n"
+        "- [x] I have verified that the issue exists against the `master` branch.\n"
+        "- [ ] I have included the output of `celery -A proj report` in the\n"
+        "  issue, which crashes with ValueError when `parse_url` runs.\n"
+        "* [x] I have checked that `parse_url` raises ValueError on master.\n"
+        "## Steps to reproduce `parse_url` ValueError\n"
+        "1. Run the server\n"
+        "2. Call `parse_url`\n"
+        "3. Call `parse_url` with an empty host and it raises ValueError.\n"
+        "## Expected behavior\n"
+        "## Environment\n"
+    )
+    submission = issue(title="parse_url crashes", body=body)
+    artifacts = Artifacts(symbols=["parse_url"], error_messages=["ValueError"])
+
+    claims = extract_claims(submission, artifacts, None)
+
+    assert [c.quote for c in claims] == [
+        "parse_url crashes",
+        "Call `parse_url` with an empty host and it raises ValueError.",
+    ]
+    assert_verbatim(submission, claims)
+
+
+def test_rules_keep_the_title_when_only_template_lines_remain() -> None:
+    body = (
+        "## Checklist\n- [x] I have read the `CONTRIBUTING` guide carefully.\n1. Run the server\n"
+    )
+    submission = issue(title="Server crashes on start", body=body)
+
+    claims = extract_claims(submission, Artifacts(), None)
+
+    assert [c.quote for c in claims] == ["Server crashes on start"]
 
 
 def test_rules_respect_max_claims_and_keep_report_order() -> None:

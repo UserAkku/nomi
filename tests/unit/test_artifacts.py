@@ -201,6 +201,42 @@ def test_symbols_from_fenced_blocks_definitions_and_calls() -> None:
     assert extract_artifacts(text).symbols == ["helper", "parse_url", "Thing", "Fetch"]
 
 
+def test_format_and_path_patterns_are_not_symbols() -> None:
+    text = (
+        'Run `celery multi start w1 --pidfile="tmp/%n.pid" --logfile=/var/log/%n%I.log`; '
+        "also --pidfile=worker.pid and build_dir/out. But proc.pid and app.conf are attributes."
+    )
+    assert extract_artifacts(text).symbols == ["proc.pid", "app.conf"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Start it with `celery -A FahrplanDatenGarten worker` and it hangs.",
+        "Start it with `celery --app=FahrplanDatenGarten worker` and it hangs.",
+        "Start it with `celery --app FahrplanDatenGarten worker` and it hangs.",
+        f"{FENCE}\ncelery -A FahrplanDatenGarten worker -l info\n"
+        f"celery --app=make_app() worker\n{FENCE}",
+    ],
+)
+def test_app_option_value_is_not_a_symbol(text: str) -> None:
+    assert extract_artifacts(text).symbols == []
+
+
+def test_app_option_skips_only_its_value() -> None:
+    text = "Run `celery -A FahrplanDatenGarten worker` then call `Celery.send_task()`."
+    assert extract_artifacts(text).symbols == ["Celery.send_task"]
+
+
+def test_external_tool_names_are_not_symbols() -> None:
+    text = (
+        "Found with ASan, UBSan, TSan, MSan and LSan; AddressSanitizer and "
+        "UndefinedBehaviorSanitizer agree. `valgrind` and `gdb` too, plus lldb, strace, perf.\n"
+        f"{FENCE}\nvalgrind(run_parser())\nperf(record)\n{FENCE}"
+    )
+    assert extract_artifacts(text).symbols == ["run_parser"]
+
+
 def test_symbol_caps() -> None:
     prose = " ".join(f"name_{i}" for i in range(80))
     block = "\n".join(f"call_{i}()" for i in range(40))

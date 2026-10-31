@@ -197,7 +197,12 @@ class TestStructure:
     def test_missing_commit_url_and_number(self) -> None:
         md = render_markdown(make_report(commit=None, url=None, number=None))
         assert "No commit pinned · deterministic checks only" in md
-        assert "`nomi analyze acme/widget`" in md
+        assert "`nomi analyze --input-file <input.json>`" in md
+        assert "`nomi analyze acme/widget`" not in md
+
+    def test_footer_keeps_url_form_without_number(self) -> None:
+        md = render_markdown(make_report(number=None))
+        assert "`nomi analyze https://github.com/acme/widget/issues/7`" in md
 
     def test_odd_commit_is_not_linked(self) -> None:
         md = render_markdown(make_report(commit="main`) [x](https://evil.example)"))
@@ -236,7 +241,7 @@ class TestStructure:
     def test_checks_table(self) -> None:
         md = render_markdown(make_report())
         assert (
-            "<details><summary>Checks performed (5: 1 passed, 1 failed, 1 warnings, 1 skipped)"
+            "<details><summary>Checks performed (5: 1 passed, 1 failed, 1 warning, 1 info, 1 skipped)"
             "</summary>"
         ) in md
         rows = table_rows(md, "| Check | Result | Detail |")
@@ -254,8 +259,22 @@ class TestStructure:
 
     def test_no_checks(self) -> None:
         md = render_markdown(make_report(checks=[]))
-        assert "Checks performed (0: 0 passed, 0 failed, 0 warnings, 0 skipped)" in md
+        assert "Checks performed (0: 0 passed, 0 failed, 0 warnings, 0 info, 0 skipped)" in md
         assert "No checks were run." in md
+
+    def test_check_counts_add_up_and_pluralise(self) -> None:
+        checks = [
+            Check(id="w1", title="a", status=CheckStatus.WARN),
+            Check(id="w2", title="b", status=CheckStatus.WARN),
+            Check(id="i1", title="c", status=CheckStatus.INFO),
+            Check(id="i2", title="d", status=CheckStatus.INFO),
+        ]
+        md = render_markdown(make_report(checks=checks))
+        assert "Checks performed (4: 0 passed, 0 failed, 2 warnings, 2 info, 0 skipped)" in md
+        summary = re.search(r"Checks performed \((\d+): (.*?)\)", md)
+        assert summary is not None
+        parts = [int(p.split()[0]) for p in summary.group(2).split(", ")]
+        assert sum(parts) == int(summary.group(1))
 
     def test_empty_sections_are_omitted(self) -> None:
         md = render_markdown(

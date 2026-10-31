@@ -407,3 +407,12 @@ def test_dataset_fingerprint_hashes_the_exact_bytes(tmp_path: Path) -> None:
     assert first["dataset"] == str(path.resolve()) and len(first["dataset_sha256"]) == 64
     path.write_bytes(b'{"id": 1}\r\n')
     assert dataset_fingerprint(path)["dataset_sha256"] != first["dataset_sha256"]
+
+
+def test_error_messages_never_publish_the_home_directory():
+    from pathlib import Path
+
+    from nomi.eval.runner import _describe
+
+    message = _describe(FileNotFoundError(f"No such file: {Path.home()}/.cache/nomi/x"))
+    assert str(Path.home()) not in message and "~/.cache/nomi/x" in message

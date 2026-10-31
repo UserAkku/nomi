@@ -119,3 +119,27 @@ def test_no_tags_or_no_versions(make_repo, sample_repo):
     assert check_versions(versions("1.0.0"), ws, text="widget 1.0.0") == []
     assert check_versions(Artifacts(), sample_repo) == []
     assert check_versions(versions("", "not a version", "é" * 1000), sample_repo, text="\x00") == []
+
+
+def test_versions_pinned_to_other_packages_are_skipped(make_repo):
+    ws = make_repo({"celery/__init__.py": ""}, repo="celery/celery", tags=("v5.0.0",))
+    text = "software -> celery:5.0.0 (singularity) kombu:5.0.2 py:3.8.5 billiard:3.6.3"
+    found = versions("5.0.0", "5.0.2", "3.8.5", "3.6.3")
+    checks = check_versions(found, ws, text=text, project_name="celery")
+    assert [c.title for c in checks if c.status is CheckStatus.WARN] == []
+    assert [c.title for c in checks] == ["5.0.0 is a real release (tag v5.0.0)"]
+    for pinned in ("kombu==5.0.2", "kombu=5.0.2", "billiard 5.0.2", "Kombu v5.0.2"):
+        assert check_versions(versions("5.0.2"), ws, text=f"celery 5.0.0, {pinned}") == []
+
+
+def test_versions_pinned_to_the_project_or_its_packages_are_still_judged(make_repo):
+    ws = make_repo({"src/celerylib/__init__.py": ""}, repo="celery/celery", tags=("v5.0.0",))
+    for text in (
+        "celery:5.0.2",
+        "Celery==5.0.2",
+        "celery worker from celerylib 5.0.2",
+        "upgrading to version 5.0.2",
+        "celery multi v5.0.2 (singularity)",
+    ):
+        (check,) = check_versions(versions("5.0.2"), ws, text=text, project_name="Celery")
+        assert check.status is CheckStatus.WARN, text

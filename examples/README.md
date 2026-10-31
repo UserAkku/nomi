@@ -1,6 +1,6 @@
 # Examples
 
-Every folder holds an **input**, and the **actual output** Nomi produced for it: `report.md` is the GitHub comment and `report.json` is machine-readable. Regenerate any of them with the command shown.
+Every folder holds an **input**, and the **actual output** Nomi produced for it: `report.md` is the GitHub comment and `report.json` is machine-readable. Regenerate them all with [`scripts/regenerate-examples.sh`](../scripts/regenerate-examples.sh), or one with `uv run nomi analyze --input-file examples/<dir>/input.json [--repo-path examples/<dir>/repo]`.
 
 | Example | What it shows |
 |---|---|
