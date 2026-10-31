@@ -34,7 +34,7 @@ Nomi is a GitHub App and CLI. For each incoming issue or PR it produces an evide
     - The Q4_K_M build is 2.5 GB, which leaves room for macOS, the Docker sandbox and an 8K-token KV cache.
     - It has no "thinking" mode, so JSON output is fast and clean.
     - It has a 256K native context and an Apache-2.0 license.
-    - Measured on our M3: about 25 tokens/s generation, and 4.1 GB resident with the 8K context, fully on the GPU. A full model-backed analysis takes 1–3 minutes.
+    - Measured on our M3: about 25 tokens/s generation, and 4.1 GB resident with the 8K context, fully on the GPU. A full model-backed analysis takes about 1–3 minutes uncached. Answers are cached, so re-runs are fast.
     - Sustained back-to-back inference heated the laptop to about 99 °C, so `nomi eval --max-temp 85 --cooldown 20` paces long runs by chip temperature. That kept it between 60 and 85 °C without moving to a weaker model.
   - *What it is not trusted with:* producing evidence. In our first benchmark the model rewrote "line 3412" as "line 3416" inside a quote it was told to copy verbatim. So every quote and citation the model returns is matched mechanically against the issue text and the repository, and anything that doesn't match is discarded.
 - **No other AI model is used.** Considered and rejected for this 8 GB machine:
@@ -47,16 +47,16 @@ Nomi is a GitHub App and CLI. For each incoming issue or PR it produces an evide
 git (pinned-commit checkouts, `git grep`, tags), BM25 retrieval over code and docs, multi-language symbol and stack-trace parsers, a unified-diff analyser, and a Docker sandbox. The model reads and cites. These tools establish what is true.
 
 ## Results (measured, see `examples/evaluation/`)
-- **Fabrication benchmark:** 19 maintainer-confirmed issues, each with a twin carrying a curl-style invented root cause (a non-existent function plus a line past the end of a real file). Nomi flagged **19/19 twins** and **0/19 originals**.
+- **Fabrication benchmark:** 19 maintainer-confirmed issues, each with a twin carrying a curl-style invented root cause (a non-existent function plus a line past the end of a real file). Nomi flagged **19/19 twins** and **0/19 originals**. This is a controlled check with one injection template.
 - **Real maintainer labels:** 91 held-out closed issues from celery, poetry and pylint. **False-invalid rate 0%**: no confirmed bug was ever called invalid. Selective accuracy was 47.6% against a 38.5% majority baseline, and Nomi abstained on 31% instead of guessing.
 - **Model contribution, measured honestly:** on a 24-issue subset the local model was slightly better than deterministic checks alone (8 vs 7 correct; selective accuracy 53.3% vs 50.0%), too small a sample to claim a real gain. Its role is breaking a report into claims and giving line-cited explanations; verdicts rest on deterministic evidence by design.
 
 ## How we built it
-- Every change after the initial commit went through a pull request into `dev`, and `dev` is released to `main` by pull request. CI (lint, about 1,100 tests on Python 3.11–3.13 including real Docker sandbox tests, and an end-to-end smoke test) passed on every merge.
-- An adversarial review by four independent reviewers (security, false accusations, robustness, evaluation validity) found 20 reproducible defects. All were fixed with regression tests in PR #4.
+- After the two initial setup commits, every change went through a pull request into `dev`, and `dev` is released to `main` by pull request. CI (lint, about 1,100 tests on Python 3.11–3.13 including real Docker sandbox tests, and an end-to-end smoke test) passed on every merge.
+- An adversarial review by four independent reviewers (security, false accusations, robustness, evaluation validity) found 23 reproducible defects. All were fixed, 22 with regression tests (`docs/review-findings.md`, PR #4). A final judge-eye verification of a fresh clone led to one more polish PR.
 
 ## AI coding assistant
-Claude Code (Claude Opus 5.5) helped write this project. Every commit and PR names it, as the hackathon rules require.
+Claude Code (Claude Opus 5.5) helped write this project. Every authored commit and every PR names it and the model used, as the hackathon rules require, and the release merge commits do too.
 
 ## Repository
 https://github.com/UserAkku/nomi (Apache-2.0)

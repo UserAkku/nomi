@@ -93,7 +93,7 @@ Useful flags: `--no-llm` (deterministic only), `--no-sandbox`, `--at-head`, `--f
 
 Full write-up and raw predictions: [examples/evaluation/](examples/evaluation/). Every number below comes from a real run on this 8 GB M3.
 
-**1. Fabrication benchmark.** Each of 19 maintainer-confirmed issues is kept as a control, and given a twin with an added curl-style fabricated root cause: a plausible non-existent function, and a line past the end of a real file at the issue's commit. Built by [`scripts/make-injection-set.py`](scripts/make-injection-set.py).
+**1. Fabrication benchmark.** Each of 19 maintainer-confirmed test issues is kept as a control, and given a twin with an added curl-style fabricated root cause: a plausible non-existent function, and a line past the end of a real file at the issue's commit. Six of the 25 confirmed issues had no suitable target file and were left out. All twins use one injection template, so treat this as a controlled check, not a field study. Built by [`scripts/make-injection-set.py`](scripts/make-injection-set.py).
 
 | Fabricated twins flagged *likely invalid* | Genuine controls flagged *invalid* |
 |:---:|:---:|
@@ -103,12 +103,12 @@ Full write-up and raw predictions: [examples/evaluation/](examples/evaluation/).
 
 | Metric | Nomi | Majority baseline |
 |---|---:|---:|
-| False-invalid rate (confirmed bugs called *invalid*) | **0 %** (0 / 25) | — |
+| False-invalid rate (confirmed bugs called *invalid*) | **0 %** (0 / 25) | 100 % (25 / 25) |
 | Selective accuracy (answered items) | 47.6 % | 38.5 % |
 | Coverage (answered instead of abstaining) | 69.2 % | 100 % |
 | Macro F1 | 0.34 | 0.19 |
 
-**What this means.** Nomi reliably catches invented functions, files and line numbers, and it never dismissed a real bug. Maintainer *invalid* labels mostly mean "usage question" or "works as designed", where the reported code really exists, so code-grounded checks cannot call those reports false. Nomi abstains instead, which is why its *invalid* recall is low. On a 24-issue subset the local model improved label agreement only slightly over deterministic checks: 8 vs 7 correct, selective accuracy 53.3 % vs 50.0 %. That is too few issues to claim a real gain, and we say so. The model's job is to break a report into individual claims and give line-cited explanations; verdict-changing evidence is deterministic by design.
+**What this means.** Nomi reliably catches invented functions, files and line numbers, and it never dismissed a real bug. Maintainer *invalid* labels mostly mean "usage question" or "works as designed", where the reported code really exists, so code-grounded checks cannot call those reports false. Nomi never answers *invalid* for them; it says *needs more information*, *likely valid* or *inconclusive* instead, so its *invalid* recall on real labels is 0. On a 24-issue subset the local model improved label agreement only slightly over deterministic checks: 8 vs 7 correct, selective accuracy 53.3 % vs 50.0 %. That is too few issues to claim a real gain, and we say so. The model's job is to break a report into individual claims and give line-cited explanations; verdict-changing evidence is deterministic by design.
 
 ```bash
 uv run nomi eval data/eval/test.jsonl --no-llm --out eval-runs/test
@@ -149,7 +149,7 @@ uv run pytest            # unit + integration tests (no network, no model needed
 uv run ruff check .
 ```
 
-Branch flow: **work branch → PR into `dev` → release PR `dev` → `main`**. Nothing is pushed to `main` directly. Every PR uses the [PR template](.github/pull_request_template.md), which names the models and AI coding assistants used, and must pass [CI](.github/workflows/ci.yml): lint, about 1,100 tests on Python 3.11–3.13 including real Docker sandbox tests, and an end-to-end smoke test. Before release, the code went through an adversarial review: four independent reviewers, each with one lens. All 20 reproduced findings were fixed with regression tests ([#4](https://github.com/UserAkku/nomi/pull/4)). See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+Branch flow: **work branch → PR into `dev` → release PR `dev` → `main`**. After the two initial setup commits, nothing was pushed to `main` directly. Every PR uses the [PR template](.github/pull_request_template.md), which names the models and AI coding assistants used, and must pass [CI](.github/workflows/ci.yml): lint, about 1,100 tests on Python 3.11–3.13 including real Docker sandbox tests, and an end-to-end smoke test. Before release, the code went through an adversarial review: four independent reviewers, each with one lens. All 23 reproduced findings were fixed, 22 with regression tests ([list](docs/review-findings.md), [#4](https://github.com/UserAkku/nomi/pull/4)). See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ```
 src/nomi/
