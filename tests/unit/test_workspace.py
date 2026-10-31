@@ -171,7 +171,12 @@ def test_worktrees_are_pruned(make_repo, tmp_path):
     cache = tmp_path / "cache3"
     for sha in shas:
         open_github_workspace(
-            "acme/up3", cache_dir=cache, ref=sha, remote_url=str(ws.root), keep_worktrees=2
+            "acme/up3",
+            cache_dir=cache,
+            ref=sha,
+            remote_url=str(ws.root),
+            keep_worktrees=2,
+            worktree_min_age_s=0,
         )
     assert len(list((cache / "repos" / "worktrees").glob("acme__up3@*"))) == 2
 
@@ -324,3 +329,21 @@ def test_resolve_commit_follows_first_parent(make_repo):
     resolved = resolve_commit(root, at=datetime(2030, 1, 6, tzinfo=UTC))
     assert resolved == main_b
     assert resolved != feature
+
+
+def test_recently_used_worktrees_are_never_pruned(make_repo, tmp_path):
+    ws = make_repo({"a.py": "v = 0\n"}, name="upstream5")
+    shas = []
+    for i in range(4):
+        (ws.root / "a.py").write_text(f"v = {i + 1}\n")
+        git(ws.root, "commit", "-qam", f"c{i}")
+        shas.append(git(ws.root, "rev-parse", "HEAD").strip())
+    cache = tmp_path / "cache5"
+    opened = [
+        open_github_workspace(
+            "acme/up5", cache_dir=cache, ref=sha, remote_url=str(ws.root), keep_worktrees=2
+        )
+        for sha in shas
+    ]
+    # another process may still be reading the first one
+    assert opened[0].read_text("a.py") == "v = 1\n"

@@ -1,0 +1,365 @@
+{
+  "schema_version": "1",
+  "nomi_version": "0.1.0",
+  "kind": "pull_request",
+  "repo": "acme/widget",
+  "number": 42,
+  "url": "https://github.com/acme/widget/pull/42",
+  "title": "Fix crash in Client.fetch with trailing whitespace",
+  "commit": null,
+  "analyzed_at": "2026-10-31T22:42:31.049102Z",
+  "model": "qwen3:4b-instruct-2507-q4_K_M",
+  "summary": "Checked 6 claims: 2 supported, 2 contradicted, 2 unverified. Top finding: The description claims tests, but no test file is changed.",
+  "claims": [
+    {
+      "claim": {
+        "id": "C1",
+        "text": "Fixes a crash in `Client.fetch` when the URL has trailing whitespace",
+        "type": "behavior",
+        "quote": "Fixes a crash in `Client.fetch` when the URL has trailing whitespace",
+        "entities": [
+          "Client.fetch",
+          "trailing whitespace",
+          "URL"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim. Model note: Model found the evidence insufficient: The code shows that `parse_url` splits a URL and returns components including scheme, host, and path. It also includes a `normalize_host` function that strips whitespace from the host. However, the claim is about trailing whitespace in the URL itself (not just the host), and there is no evidence that `Client.fetch` handles or processes trailing whitespace in the full URL path or query. The behavior of `fetch` with trailing whitespace in the URL is not explicitly tested or implemented in the pro…; 2 citation(s) discarded because the quote was not found in the cited evidence or the evidence id was unknown.",
+      "evidence": [],
+      "method": "llm"
+    },
+    {
+      "claim": {
+        "id": "C2",
+        "text": "Fixes a crash in `Client.fetch` when the URL has trailing whitespace, by normalising the host in `src/widget/net.py`.",
+        "type": "location",
+        "quote": "Fixes a crash in `Client.fetch` when the URL has trailing whitespace, by normalising the host in `src/widget/net.py`.",
+        "entities": [
+          "src/widget/net.py"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "supported",
+      "confidence": "low",
+      "rationale": "Only partly verified: the referenced code exists (`src/widget/net.py` exists in the repository)",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "file cited by the report",
+          "path": "src/widget/net.py",
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": null
+        },
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "src/widget/net.py",
+          "line_start": 12,
+          "line_end": 12,
+          "excerpt": "12 |     def fetch(self, url: str, timeout: int = DEFAULT_TIMEOUT) -> bytes:",
+          "url": null
+        }
+      ],
+      "method": "deterministic"
+    },
+    {
+      "claim": {
+        "id": "C3",
+        "text": "by normalising the host in `src/widget/net.py`",
+        "type": "code_fact",
+        "quote": "by normalising the host in `src/widget/net.py`",
+        "entities": [
+          "src/widget/net.py",
+          "normalising the host"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "supported",
+      "confidence": "low",
+      "rationale": "Only partly verified: the referenced code exists (`src/widget/net.py` exists in the repository)",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "file cited by the report",
+          "path": "src/widget/net.py",
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": null
+        }
+      ],
+      "method": "deterministic"
+    },
+    {
+      "claim": {
+        "id": "C4",
+        "text": "Adds unit tests for the new behaviour",
+        "type": "change",
+        "quote": "Adds unit tests for the new behaviour",
+        "entities": [
+          "unit tests",
+          "new behaviour"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "contradicted",
+      "confidence": "medium",
+      "rationale": "The description claims tests, but no test file is changed",
+      "evidence": [
+        {
+          "kind": "diff",
+          "description": "files changed by this PR",
+          "path": null,
+          "line_start": null,
+          "line_end": null,
+          "excerpt": "M src/widget/parser.py (code, +0 -3)\nM README.md (doc, +1 -1)",
+          "url": null
+        }
+      ],
+      "method": "deterministic"
+    },
+    {
+      "claim": {
+        "id": "C5",
+        "text": "Updates the documentation",
+        "type": "change",
+        "quote": "Updates the documentation",
+        "entities": [
+          "documentation"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim.",
+      "evidence": [],
+      "method": "none"
+    },
+    {
+      "claim": {
+        "id": "C6",
+        "text": "No breaking changes: the public API is unchanged",
+        "type": "change",
+        "quote": "No breaking changes: the public API is unchanged",
+        "entities": [
+          "public API",
+          "breaking changes"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "contradicted",
+      "confidence": "medium",
+      "rationale": "The description says there is no breaking change, but public names are removed: `normalize_host`",
+      "evidence": [
+        {
+          "kind": "diff",
+          "description": "public definition removed",
+          "path": "src/widget/parser.py",
+          "line_start": 17,
+          "line_end": 17,
+          "excerpt": "-def normalize_host(host: str) -> str:",
+          "url": "https://github.com/acme/widget/pull/42/files#diff-e931eee7d17f5acbd05a22eedf7a9594ace7f1aad5dc4751e80af6a410170837L17"
+        }
+      ],
+      "method": "deterministic"
+    }
+  ],
+  "checks": [
+    {
+      "id": "grounding.file",
+      "title": "`src/widget/net.py` exists in the repository",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.15,
+      "detail": "",
+      "claim_ids": [
+        "C2",
+        "C3"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "file cited by the report",
+          "path": "src/widget/net.py",
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": null
+        }
+      ]
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`Client.fetch` is defined at `src/widget/net.py:12`",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.15,
+      "detail": "",
+      "claim_ids": [
+        "C1",
+        "C2"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "function definition",
+          "path": "src/widget/net.py",
+          "line_start": 12,
+          "line_end": 12,
+          "excerpt": "12 |     def fetch(self, url: str, timeout: int = DEFAULT_TIMEOUT) -> bytes:",
+          "url": null
+        }
+      ]
+    },
+    {
+      "id": "pr.tests_claim",
+      "title": "The description claims tests, but no test file is changed.",
+      "status": "fail",
+      "signal": "contradicts",
+      "strength": 0.6,
+      "detail": "The description says \"Adds unit tests\", but none of the 2 changed files is a test file.",
+      "claim_ids": [
+        "C4"
+      ],
+      "evidence": [
+        {
+          "kind": "diff",
+          "description": "files changed by this PR",
+          "path": null,
+          "line_start": null,
+          "line_end": null,
+          "excerpt": "M src/widget/parser.py (code, +0 -3)\nM README.md (doc, +1 -1)",
+          "url": null
+        }
+      ]
+    },
+    {
+      "id": "pr.docs_claim",
+      "title": "The claimed documentation changes are in the diff (1 doc file(s)).",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.15,
+      "detail": "The description says \"Updates the documentation\"; changed doc files: `README.md`",
+      "claim_ids": [
+        "C5"
+      ],
+      "evidence": [
+        {
+          "kind": "diff",
+          "description": "documentation changed",
+          "path": "README.md",
+          "line_start": 3,
+          "line_end": 3,
+          "excerpt": "-Fetch and parse URLs.\n+Fetch  and parse URLs. ",
+          "url": "https://github.com/acme/widget/pull/42/files#diff-b335630551682c19a781afebcf4d07bf978fb1f8ac04c6bf87428ed5106870f5R3"
+        }
+      ]
+    },
+    {
+      "id": "pr.breaking_change",
+      "title": "The description says there is no breaking change, but public names are removed: `normalize_host`.",
+      "status": "fail",
+      "signal": "contradicts",
+      "strength": 0.6,
+      "detail": "The description says \"No breaking changes\", yet the diff removes 1 public definition(s) without re-adding, aliasing or re-exporting them: `normalize_host`.",
+      "claim_ids": [
+        "C6"
+      ],
+      "evidence": [
+        {
+          "kind": "diff",
+          "description": "public definition removed",
+          "path": "src/widget/parser.py",
+          "line_start": 17,
+          "line_end": 17,
+          "excerpt": "-def normalize_host(host: str) -> str:",
+          "url": "https://github.com/acme/widget/pull/42/files#diff-e931eee7d17f5acbd05a22eedf7a9594ace7f1aad5dc4751e80af6a410170837L17"
+        }
+      ]
+    },
+    {
+      "id": "pr.mentioned_files",
+      "title": "Files named in the description exist but are not changed by this PR: `src/widget/net.py`.",
+      "status": "info",
+      "signal": "neutral",
+      "strength": 0.0,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "`src/widget/net.py` in the repository",
+          "path": "src/widget/net.py",
+          "line_start": 1,
+          "line_end": 1,
+          "excerpt": "1 | \"\"\"Tiny HTTP client.\"\"\"",
+          "url": null
+        }
+      ]
+    },
+    {
+      "id": "pr.mentioned_symbols",
+      "title": "`Client.fetch` mentioned but not touched by this PR.",
+      "status": "warn",
+      "signal": "neutral",
+      "strength": 0.2,
+      "detail": "These identifiers exist in the repository but no line of the diff contains them; check that the description matches the change.",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "`Client.fetch` in the repository",
+          "path": "src/widget/net.py",
+          "line_start": 12,
+          "line_end": 12,
+          "excerpt": "12 |     def fetch(self, url: str, timeout: int = DEFAULT_TIMEOUT) -> bytes:",
+          "url": null
+        }
+      ]
+    }
+  ],
+  "completeness": {
+    "present": [],
+    "missing": [],
+    "score": 1.0
+  },
+  "assessment": {
+    "verdict": "likely_invalid",
+    "confidence": "low",
+    "score": -0.75,
+    "reasons": [
+      "Contradicting evidence outweighs supporting evidence (score -0.75).",
+      "-0.60 pr.tests_claim: The description claims tests, but no test file is changed",
+      "-0.60 pr.breaking_change: The description says there is no breaking change, but public names are removed: `normalize_host`",
+      "+0.15 grounding.file: `src/widget/net.py` exists in the repository",
+      "+0.15 grounding.symbol: `Client.fetch` is defined at `src/widget/net.py:12`",
+      "+0.15 pr.docs_claim: The claimed documentation changes are in the diff (1 doc file(s))"
+    ]
+  },
+  "missing_information": [],
+  "next_steps": [
+    "Ask the reporter where `unit tests` comes from: The description claims tests, but no test file is changed",
+    "Ask the reporter where `normalize_host` comes from: The description says there is no breaking change, but public names are removed: `normalize_host`",
+    "Wait for the reporter's answer before deciding; a maintainer should confirm before closing or labelling anything."
+  ],
+  "limitations": [
+    "Sandbox unavailable: the Docker daemon is not reachable: failed to connect to the docker API at unix://~/.docker/run/docker.sock; check if the path is correc...",
+    "LLM judgements come from a small local model and are advisory (never high confidence on their own)"
+  ],
+  "timings": {
+    "extract": 0.001,
+    "claims": 0.003,
+    "verify": 0.008,
+    "judge": 0.003
+  }
+}

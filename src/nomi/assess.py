@@ -233,8 +233,11 @@ def _finalize_claim(
     if judgment is not None and judgment.verdict != Verdict.UNVERIFIED:
         return _from_judgment(claim, linked, judgment)
     supports = _with_signal(linked, Signal.SUPPORTS)
-    if claim.type in (ClaimType.CODE_FACT, ClaimType.LOCATION) and _at_least(
-        sum(_strength(c) for c in supports), CLAIM_CODE_EXISTS
+    doubted = any(_strength(c) > 0 for c in _with_signal(linked, Signal.CONTRADICTS))
+    if (
+        claim.type in (ClaimType.CODE_FACT, ClaimType.LOCATION)
+        and not doubted  # one existing name must not vouch for a claim whose other parts fail
+        and _at_least(sum(_strength(c) for c in supports), CLAIM_CODE_EXISTS)
     ):
         best = max(supports, key=_strength)
         return ClaimAssessment(
@@ -388,6 +391,11 @@ def _version_skew(checks: list[Check]) -> list[Check]:
     the failures are treated as probable version skew.
     """
     refs = [c for c in checks if c.id in _REFERENCE_IDS]
+    if any(
+        c.status == CheckStatus.FAIL and c.id not in _SKEWABLE_IDS and _strength(c) >= 0.7
+        for c in refs
+    ):
+        return []  # something that exists nowhere is not a version difference
     held = [c for c in refs if c.status == CheckStatus.PASS]
     failed = [c for c in refs if c.status == CheckStatus.FAIL and c.id in _SKEWABLE_IDS]
     if failed and len(held) >= 3 and len(held) >= 2 * len(failed):

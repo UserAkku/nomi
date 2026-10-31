@@ -193,10 +193,12 @@ def _snap(text: str, start: int, end: int) -> tuple[int, int]:
     while hi > lo and text[hi - 1] in " ([{":
         hi -= 1
     if text.count("`", lo, hi) % 2:  # never cut an inline-code span in half
-        if lo > 0 and text[lo - 1] == "`":
-            lo -= 1
-        elif hi < len(text) and text[hi] == "`":
-            hi += 1
+        before = text.rfind("`", max(0, lo - 4), lo)
+        after = text.find("`", hi, hi + 4)
+        if before != -1:
+            lo = before
+        elif after != -1:
+            hi = after + 1
     return lo, hi
 
 
@@ -646,7 +648,8 @@ def _llm_claims(
     candidates: list[_Candidate] = []
     for position, raw in enumerate(answer.claims):
         anchored = _anchor(raw, source, haystack, units)
-        if anchored is not None:
+        # A pasted code block is evidence the verifiers already check, not a claim.
+        if anchored is not None and "```" not in anchored[0] and "~~~" not in anchored[0]:
             quote, entities = anchored
             candidates.append(
                 _Candidate(position, ClaimType(raw.type), quote, entities, raw.checkable)

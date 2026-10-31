@@ -75,6 +75,12 @@ The rules, in order (`assess.py`):
 4. Net evidence score ≥ +0.6 → Likely valid. ≤ −0.6 → Likely invalid.
 5. Otherwise an incomplete report → Needs more information, else **Inconclusive**.
 
+Two guards keep weak evidence from adding up to an accusation:
+- **Uncertain warnings are capped.** All "not found here, may come from a dependency" contradictions together count for at most 0.4, so a traceback full of the reporter's own paths cannot sum to "invalid".
+- **Version skew.** When at least three cited references hold and they outnumber the failures 2:1, an isolated *line or stack-frame* mismatch is treated as a probable version difference. A function or file that exists nowhere is never excused this way.
+
+A sandbox run that does **not** reproduce the bug maps to *needs more information* ("cannot reproduce"), never to *invalid*.
+
 Confidence comes from how much independent, deterministic evidence agrees. A model's opinion alone can never produce high confidence.
 
 ## Running on an 8 GB laptop

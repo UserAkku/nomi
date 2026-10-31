@@ -1,0 +1,424 @@
+{
+  "schema_version": "1",
+  "nomi_version": "0.1.0",
+  "kind": "issue",
+  "repo": "celery/celery",
+  "number": 6426,
+  "url": "https://github.com/celery/celery/issues/6426",
+  "title": "`celery multi`creates xxx_%I.log files",
+  "commit": "b50b178f41c798f63aad77c0e4908c8a7139a753",
+  "analyzed_at": "2026-10-31T22:38:20.626379Z",
+  "model": "qwen3:4b-instruct-2507-q4_K_M",
+  "summary": "Checked 6 claims: 6 unverified. Top finding: `xxx_` was not found in the repository at `b50b178`; it may come from a dependency.",
+  "claims": [
+    {
+      "claim": {
+        "id": "C1",
+        "text": "`celery multi`creates xxx_%I.log files",
+        "type": "behavior",
+        "quote": "`celery multi`creates xxx_%I.log files",
+        "entities": [
+          "celery multi",
+          "xxx_%I.log"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim. Model note: Unverified: model gave no verifiable citation for its 'supports' answer (3 discarded: quote not found in the cited evidence or unknown evidence id). Model rationale: The evidence shows that `celery multi` uses the %n and %I format in log file paths, with %I being explicitly passed through in the 4.0 release notes. Example usage in E5 and E2 confirms that log files are generated with %n%I, such as /var/log/celery/%n%I.log, directly supporting the claim that it creates xxx_%I.log files.",
+      "evidence": [],
+      "method": "llm"
+    },
+    {
+      "claim": {
+        "id": "C2",
+        "text": "**Minimal Celery Version**: 5.0.1",
+        "type": "environment",
+        "quote": "**Minimal Celery Version**: 5.0.1",
+        "entities": [
+          "celery:5.0.1",
+          "kombu:5.0.2",
+          "py:3.8.3",
+          "billiard:3.6.3.0",
+          "redis:3.5.3"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim.",
+      "evidence": [],
+      "method": "none"
+    },
+    {
+      "claim": {
+        "id": "C3",
+        "text": "$ celery multi start normal low --app=service.celery:app --logfile=/tmp/celery/celery-%n%I.log --queues:normal=normal --queues:low=low --concurrency:normal=2 --concurrency:low=1 --pidfile=/tmp/celery/",
+        "type": "reproduction",
+        "quote": "$ celery multi start normal low --app=service.celery:app --logfile=/tmp/celery/celery-%n%I.log --queues:normal=normal --queues:low=low --concurrency:normal=2 --concurrency:low=1 --pidfile=/tmp/celery/",
+        "entities": [
+          "celery multi",
+          "start",
+          "normal",
+          "low",
+          "--app=service.celery:app",
+          "--logfile=/tmp/celery/celery-%n%I.log",
+          "--queues:normal=normal",
+          "--queues:low=low"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim. Model note: Model found the evidence insufficient: The claim describes a command to start multiple Celery worker instances with specific queue and concurrency settings using the 'celery multi start' command. However, none of the provided evidence blocks contain any code or configuration that specifies or supports the use of '--queues:normal=normal' or '--queues:low=low' or '--concurrency:normal=2' and '--concurrency:low=1' as arguments to the 'celery multi start' command. The evidence includes documentation on how to use 'celery multi' for star….",
+      "evidence": [],
+      "method": "llm"
+    },
+    {
+      "claim": {
+        "id": "C4",
+        "text": "celery multi v5.0.1 (singularity)",
+        "type": "code_fact",
+        "quote": "celery multi v5.0.1 (singularity)",
+        "entities": [
+          "celery multi",
+          "v5.0.1",
+          "singularity"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim. Model note: Unverified: model gave no verifiable citation for its 'supports' answer (1 discarded: quote not found in the cited evidence or unknown evidence id). Model rationale: The code in E1 explicitly defines the SERIES constant as 'singularity' and sets __version__ to '5.0.1', directly supporting the claim that celery multi v5.0.1 is running in a singularity environment. This is a clear, direct match to the claimed version and component.",
+      "evidence": [],
+      "method": "llm"
+    },
+    {
+      "claim": {
+        "id": "C5",
+        "text": "Celery 4.4.7 behavior",
+        "type": "behavior",
+        "quote": "Celery 4.4.7 behavior",
+        "entities": [
+          "Celery 4.4.7",
+          "celeryd-low.pid",
+          "celeryd-normal.pid",
+          "celery-low-1.log",
+          "celery-low.log",
+          "celery-normal-1.log",
+          "celery-normal-2.log",
+          "celery-normal.log"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim. Model note: Model found the evidence insufficient: The evidence confirms that Celery 4.4.7 (as referenced in the claim) has default paths for PID and log files, and that directories are only created if no custom locations are set. However, the claim is about 'Celery 4.4.7 behavior' without specifying what behavior is being claimed. Since the claim is vague and no specific behavior (e.g., log file creation, permission handling, or daemonization behavior) is defined or tested against, the evidence does not allow a definitive conclusion about whet…; 1 citation(s) discarded because the quote was not found in the cited evidence or the evidence id was unknown.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "extra/systemd/celery.conf lines 8-9, cited by the model and re-located in the file",
+          "path": "extra/systemd/celery.conf",
+          "line_start": 8,
+          "line_end": 9,
+          "excerpt": "8 | CELERYD_PID_FILE=\"/var/run/celery/%n.pid\"\n9 | CELERYD_LOG_FILE=\"/var/log/celery/%n%I.log\"",
+          "url": "https://github.com/celery/celery/blob/b50b178f41c798f63aad77c0e4908c8a7139a753/extra/systemd/celery.conf#L8-L9"
+        },
+        {
+          "kind": "doc",
+          "description": "docs/userguide/daemonizing.rst lines 198-204, cited by the model and re-located in the file",
+          "path": "docs/userguide/daemonizing.rst",
+          "line_start": 198,
+          "line_end": 204,
+          "excerpt": "198 | * ``CELERYD_PID_FILE``\n199 | \n200 |     Full path to the PID file. Default is /var/run/celery/%n.pid\n201 | \n202 | * ``CELERYD_LOG_FILE``\n203 | \n204 |     Full path to the worker log file. Default is /var/log/celery/%n%I.log",
+          "url": "https://github.com/celery/celery/blob/b50b178f41c798f63aad77c0e4908c8a7139a753/docs/userguide/daemonizing.rst#L198-L204"
+        }
+      ],
+      "method": "llm"
+    },
+    {
+      "claim": {
+        "id": "C6",
+        "text": "-rw-rw-r-- 1 www-data www-data   0 Oct 19 14:39 celery-normal%I.log",
+        "type": "behavior",
+        "quote": "-rw-rw-r-- 1 www-data www-data   0 Oct 19 14:39 celery-normal%I.log",
+        "entities": [
+          "celery-low%I.log",
+          "celery-normal%I.log"
+        ],
+        "checkable": true,
+        "origin": "llm"
+      },
+      "verdict": "unverified",
+      "confidence": "low",
+      "rationale": "No verifiable evidence for or against this claim.",
+      "evidence": [],
+      "method": "none"
+    }
+  ],
+  "checks": [
+    {
+      "id": "grounding.symbol",
+      "title": "`xxx_` was not found in the repository at `b50b178`; it may come from a dependency",
+      "status": "warn",
+      "signal": "contradicts",
+      "strength": 0.3,
+      "detail": "",
+      "claim_ids": [
+        "C1"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "grounding.symbol",
+      "title": "`master` is referenced (e.g. `.github/ISSUE_TEMPLATE/Bug-Report.md:15`) but not defined in the repository",
+      "status": "info",
+      "signal": "neutral",
+      "strength": 0.05,
+      "detail": "It is probably defined by a dependency, generated code or a macro.",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "doc",
+          "description": "reference",
+          "path": ".github/ISSUE_TEMPLATE/Bug-Report.md",
+          "line_start": 15,
+          "line_end": 15,
+          "excerpt": "15 | - [ ] I have verified that the issue exists against the `master` branch of Celery.",
+          "url": "https://github.com/celery/celery/blob/b50b178f41c798f63aad77c0e4908c8a7139a753/.github/ISSUE_TEMPLATE/Bug-Report.md#L15"
+        },
+        {
+          "kind": "doc",
+          "description": "reference",
+          "path": ".github/ISSUE_TEMPLATE/Bug-Report.md",
+          "line_start": 24,
+          "line_end": 24,
+          "excerpt": "24 | - [ ] I have checked the [commit log](https://github.com/celery/celery/commits/master)",
+          "url": "https://github.com/celery/celery/blob/b50b178f41c798f63aad77c0e4908c8a7139a753/.github/ISSUE_TEMPLATE/Bug-Report.md#L24"
+        },
+        {
+          "kind": "doc",
+          "description": "reference",
+          "path": ".github/ISSUE_TEMPLATE/Bug-Report.md",
+          "line_start": 25,
+          "line_end": 25,
+          "excerpt": "25 |   to find out if the bug was already fixed in the master branch.",
+          "url": "https://github.com/celery/celery/blob/b50b178f41c798f63aad77c0e4908c8a7139a753/.github/ISSUE_TEMPLATE/Bug-Report.md#L25"
+        }
+      ]
+    },
+    {
+      "id": "grounding.flag",
+      "title": "`--app` is defined or documented at `celery/apps/multi.py:169`",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.1,
+      "detail": "",
+      "claim_ids": [
+        "C3"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "`--app`",
+          "path": "celery/apps/multi.py",
+          "line_start": 169,
+          "line_end": 169,
+          "excerpt": "169 |                 '-A', '--app',",
+          "url": "https://github.com/celery/celery/blob/b50b178f41c798f63aad77c0e4908c8a7139a753/celery/apps/multi.py#L169"
+        }
+      ]
+    },
+    {
+      "id": "grounding.flag",
+      "title": "`--logfile` is defined or documented at `celery/apps/multi.py:141`",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.1,
+      "detail": "",
+      "claim_ids": [
+        "C3"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "`--logfile`",
+          "path": "celery/apps/multi.py",
+          "line_start": 141,
+          "line_end": 141,
+          "excerpt": "141 |         self._setdefaultopt(options, ['--logfile', '-f'], '/var/log/celery/%n%I.log')",
+          "url": "https://github.com/celery/celery/blob/b50b178f41c798f63aad77c0e4908c8a7139a753/celery/apps/multi.py#L141"
+        }
+      ]
+    },
+    {
+      "id": "grounding.flag",
+      "title": "`--queues` is defined or documented at `celery/bin/migrate.py:36`",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.1,
+      "detail": "",
+      "claim_ids": [
+        "C3"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "`--queues`",
+          "path": "celery/bin/migrate.py",
+          "line_start": 36,
+          "line_end": 36,
+          "excerpt": "36 |               '--queues',",
+          "url": "https://github.com/celery/celery/blob/b50b178f41c798f63aad77c0e4908c8a7139a753/celery/bin/migrate.py#L36"
+        }
+      ]
+    },
+    {
+      "id": "grounding.flag",
+      "title": "`--concurrency` is defined or documented at `celery/bin/worker.py:163`",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.1,
+      "detail": "",
+      "claim_ids": [
+        "C3"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "`--concurrency`",
+          "path": "celery/bin/worker.py",
+          "line_start": 163,
+          "line_end": 163,
+          "excerpt": "163 |               '--concurrency',",
+          "url": "https://github.com/celery/celery/blob/b50b178f41c798f63aad77c0e4908c8a7139a753/celery/bin/worker.py#L163"
+        }
+      ]
+    },
+    {
+      "id": "grounding.flag",
+      "title": "`--pidfile` is defined or documented at `celery/apps/multi.py:140`",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.1,
+      "detail": "",
+      "claim_ids": [
+        "C3"
+      ],
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "`--pidfile`",
+          "path": "celery/apps/multi.py",
+          "line_start": 140,
+          "line_end": 140,
+          "excerpt": "140 |         self._setdefaultopt(options, ['--pidfile', '-p'], '/var/run/celery/%n.pid')",
+          "url": "https://github.com/celery/celery/blob/b50b178f41c798f63aad77c0e4908c8a7139a753/celery/apps/multi.py#L140"
+        }
+      ]
+    },
+    {
+      "id": "version.release",
+      "title": "5.0.1 is a real release (tag v5.0.1)",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.1,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "history",
+          "description": "release tag `v5.0.1`",
+          "path": null,
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": "https://github.com/celery/celery/releases/tag/v5.0.1"
+        }
+      ]
+    },
+    {
+      "id": "version.release",
+      "title": "4.4.7 is a real release (tag v4.4.7)",
+      "status": "pass",
+      "signal": "supports",
+      "strength": 0.1,
+      "detail": "",
+      "claim_ids": [],
+      "evidence": [
+        {
+          "kind": "history",
+          "description": "release tag `v4.4.7`",
+          "path": null,
+          "line_start": null,
+          "line_end": null,
+          "excerpt": null,
+          "url": "https://github.com/celery/celery/releases/tag/v4.4.7"
+        }
+      ]
+    },
+    {
+      "id": "repro.sandbox",
+      "title": "Dynamic reproduction not run",
+      "status": "skipped",
+      "signal": "neutral",
+      "strength": 0.0,
+      "detail": "No Docker sandbox for this run (disabled or Docker unavailable)",
+      "claim_ids": [],
+      "evidence": []
+    }
+  ],
+  "completeness": {
+    "present": [
+      "steps_to_reproduce",
+      "expected_behavior",
+      "actual_behavior",
+      "version",
+      "environment",
+      "code_sample"
+    ],
+    "missing": [
+      "logs"
+    ],
+    "score": 0.85
+  },
+  "assessment": {
+    "verdict": "inconclusive",
+    "confidence": "low",
+    "score": 0.4,
+    "reasons": [
+      "Not enough evidence either way (score +0.40).",
+      "-0.30 grounding.symbol: `xxx_` was not found in the repository at `b50b178`; it may come from a dependency",
+      "+0.10 grounding.flag: `--app` is defined or documented at `celery/apps/multi.py:169`",
+      "+0.10 grounding.flag: `--logfile` is defined or documented at `celery/apps/multi.py:141`",
+      "+0.10 grounding.flag: `--queues` is defined or documented at `celery/bin/migrate.py:36`",
+      "+0.10 grounding.flag: `--concurrency` is defined or documented at `celery/bin/worker.py:163`"
+    ]
+  },
+  "missing_information": [
+    "The full error output or traceback"
+  ],
+  "next_steps": [
+    "Manual review needed; checks that could settle it: repro.sandbox (No Docker sandbox for this run (disabled or Docker unavailable))",
+    "Verify claim C1 by hand: “`celery multi`creates xxx_%I.log files”",
+    "Verify claim C2 by hand: “**Minimal Celery Version**: 5.0.1”",
+    "Verify claim C3 by hand: “$ celery multi start normal low --app=service.celery:app --logfile=/tmp/celery/celery-%n%I.log --queues:normal=normal -…”"
+  ],
+  "limitations": [
+    "Dynamic reproduction not run: skipped (No Docker sandbox for this run (disabled or Docker unavailable))",
+    "LLM judgements come from a small local model and are advisory (never high confidence on their own)",
+    "Evidence is pinned to commit b50b178f41c798f63aad77c0e4908c8a7139a753"
+  ],
+  "timings": {
+    "extract": 0.006,
+    "claims": 0.037,
+    "verify": 0.474,
+    "reproduce": 0.0,
+    "judge": 67.35
+  }
+}

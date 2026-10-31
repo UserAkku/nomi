@@ -459,7 +459,8 @@ def open_github_workspace(
     pr_number: int | None = None,
     remote_url: str | None = None,
     refresh_after_s: int = 900,
-    keep_worktrees: int = 12,
+    keep_worktrees: int = 24,
+    worktree_min_age_s: int = 900,
 ) -> Workspace:
     """Clone (blobless) or refresh `owner/name`, check out the right commit.
 
@@ -494,11 +495,11 @@ def open_github_workspace(
                 timeout=600,
             )
         commit = resolve_commit(dest, at=at, ref=ref)
-        tree = _worktree(dest, commit, keep=keep_worktrees)
+        tree = _worktree(dest, commit, keep=keep_worktrees, min_age_s=worktree_min_age_s)
     return Workspace(tree, commit=commit, repo=repo)
 
 
-def _worktree(dest: Path, commit: str, *, keep: int) -> Path:
+def _worktree(dest: Path, commit: str, *, keep: int, min_age_s: int = 900) -> Path:
     """A private checkout of `commit`, shared by nothing else.
 
     Each commit gets its own git worktree, so concurrent analyses (an
@@ -518,7 +519,12 @@ def _worktree(dest: Path, commit: str, *, keep: int) -> Path:
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
+    # Another process may still be reading a recently opened worktree: only
+    # prune ones that have been idle for a while.
+    cutoff = time.time() - min_age_s
     for stale in siblings[max(0, keep - 1) :]:
+        if stale.stat().st_mtime > cutoff:
+            continue
         with suppress(GitError):
             _git(["worktree", "remove", "--force", str(stale)], dest, timeout=300)
     return tree

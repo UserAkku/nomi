@@ -802,3 +802,25 @@ def test_version_skew_never_excuses_a_nonexistent_function() -> None:
     missing = check("grounding.symbol", Signal.CONTRADICTS, 0.8, title="not defined anywhere")
     result = assess(Kind.ISSUE, [], [*held, missing], FULL)
     assert result.verdict is OverallVerdict.LIKELY_INVALID
+
+
+def test_existing_name_does_not_vouch_for_a_claim_with_a_missing_file() -> None:
+    c = claim("C1", ClaimType.CODE_FACT)
+    checks = [
+        check("grounding.symbol", Signal.SUPPORTS, 0.15, claims=("C1",)),
+        check("grounding.file", Signal.CONTRADICTS, 0.3, status=CheckStatus.WARN, claims=("C1",)),
+    ]
+    [result] = finalize_claims([c], checks, [], FULL)
+    assert result.verdict is not Verdict.SUPPORTED
+
+
+def test_no_version_skew_note_when_something_is_missing_entirely() -> None:
+    held = [check("grounding.file", Signal.SUPPORTS, 0.15) for _ in range(5)]
+    checks = [
+        *held,
+        check("grounding.line", Signal.CONTRADICTS, 0.75),
+        check("grounding.symbol", Signal.CONTRADICTS, 0.8),
+    ]
+    result = assess(Kind.ISSUE, [], checks, FULL)
+    assert result.verdict is OverallVerdict.LIKELY_INVALID
+    assert not any("version difference" in r for r in result.reasons)

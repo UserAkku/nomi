@@ -1,0 +1,14 @@
+{
+  "kind": "issue",
+  "repo": "celery/celery",
+  "number": 2126,
+  "url": "https://github.com/celery/celery/issues/2126",
+  "title": "documation fix for django 1.7 \"App registry isn't ready yet\"",
+  "body": "The celery app file needs to call django.setup in django 1.7 or you get an exception stating \"App registry isn't ready yet\" when a task is run.\n\nSee https://docs.djangoproject.com/en/dev/releases/1.7/#standalone-scripts\n\nThe documentation for first steps with django (http://docs.celeryproject.org/en/master/django/first-steps-with-django.html) need to be updated to reflect this.\n",
+  "author": null,
+  "created_at": "2014-07-07T14:37:41Z",
+  "base_ref": null,
+  "base_sha": null,
+  "head_sha": null,
+  "changed_files": []
+}
